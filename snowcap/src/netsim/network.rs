@@ -150,6 +150,7 @@ pub struct Network {
     skip_queue: bool,
 }
 
+// implements the public trait clone
 impl Clone for Network {
     /// Cloning the network does not clone the event history, and any of the undo traces.
     fn clone(&self) -> Self {
@@ -163,6 +164,7 @@ impl Clone for Network {
             stop_after: self.stop_after,
             config: self.config.clone(),
             queue: self.queue.clone(),
+            // does not clone the event history
             event_history: Vec::new(),
             skip_queue: false,
         }
@@ -170,6 +172,7 @@ impl Clone for Network {
 }
 
 impl Default for Network {
+    // call Default::default to return a new object
     fn default() -> Self {
         Self::new()
     }
@@ -179,6 +182,7 @@ impl Network {
     /// Generate an empty Network
     pub fn new() -> Self {
         Self {
+            // for routing?
             net: IgpNetwork::new(),
             links: Vec::new(),
             routers: HashMap::new(),
@@ -196,6 +200,9 @@ impl Network {
     /// function returns the ID of the router, which can be used to reference it while confiugring
     /// the network.
     pub fn add_router<S: Into<String>>(&mut self, name: S) -> RouterId {
+        // constructs a new router object
+        // router id is the second argument
+        // NodeIndex object from petgraph
         let new_router = Router::new(name.into(), self.net.add_node(()), AsId(65001));
         let router_id = new_router.router_id();
         self.routers.insert(router_id, new_router);
@@ -258,6 +265,9 @@ impl Network {
     /// fail if the modifiers cannot be applied to the current config, or if there was a problem
     /// while applying a modifier and letting the network converge. If the process fails, the
     /// network is in an undefined state.
+    
+    // do new configurations also use this function call?
+
     pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<(), NetworkError> {
         // apply every modifier in order
         self.skip_queue = true;
@@ -271,6 +281,8 @@ impl Network {
     /// Apply a single configuration modification. The modification must be applicable to the
     /// current configuration. All messages are exchanged. The process fails, then the network is
     /// in an undefined state, and it should be rebuilt.
+    
+    // exchange messages between all devices?
     pub fn apply_modifier(&mut self, modifier: &ConfigModifier) -> Result<(), NetworkError> {
         debug!("Applying modifier: {}", printer::config_modifier(self, modifier)?);
 
@@ -292,9 +304,11 @@ impl Network {
     /// [`Condition::NotReachable`]. This function then returns the number of convergence series, in
     /// which every condition is satisfied at all intermediate states of this convergence process.
     ///
-    /// It does this by shuffling the queue each ane very time before performing the next step. If
+    /// It does this by shuffling the queue each and very time before performing the next step. If
     /// there exists no message to be reordered, this function returns
     /// [`NetworkError::NoEventsToReorder`].
+    
+    // only one modifier is applied?
     #[cfg(feature = "transient-violation")]
     pub fn apply_modifier_check_transient(
         &mut self,
@@ -648,6 +662,7 @@ impl Network {
     /// Return the route for the given prefix, starting at the source router, as a list of
     /// `RouterIds,` starting at the source, and ending at the (probably external) router ID that
     /// originated the prefix. The Router ID must be the ID of an internal router.
+    // is the function only capable of routing to another prefix?
     pub fn get_route(
         &self,
         source: RouterId,
@@ -664,12 +679,15 @@ impl Network {
             if !(self.routers.contains_key(&current_node)
                 || self.external_routers.contains_key(&current_node))
             {
+                // router in neither internal nor external router
                 return Err(NetworkError::DeviceNotFound(current_node));
             }
             result.push(current_node);
             // insert the current node into the visited routes
             if let Some(r) = self.routers.get(&current_node) {
                 // we are still inside our network
+                // insert node into the set to check if already visited
+                // return false if visited, detecting a forwarding loop
                 if !visited_routers.insert(current_node) {
                     debug!(
                         "Forwarding Loop detected: {:?}",
@@ -680,7 +698,9 @@ impl Network {
                     );
                     return Err(NetworkError::ForwardingLoop(result));
                 }
+                // gets the id of the next hop to visit the destination
                 current_node = match r.get_next_hop(prefix) {
+                    // unwrap option value
                     Some(router_id) => router_id,
                     None => {
                         return {
@@ -804,6 +824,9 @@ impl Network {
     ) -> Result<(), NetworkError> {
         // check that the modifier can be applied on the config
         self.config.apply_modifier(modifier)?;
+        
+        // where does it call the function apply_modifier_check_transient
+        // perhaps in the code applying this modifier
 
         // If the modifier can be applied, then everything is ok and we can do the actual change.
         match modifier {

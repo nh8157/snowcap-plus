@@ -24,6 +24,7 @@ use crate::netsim::external_router::ExternalRouter;
 use crate::netsim::network::Network;
 use crate::netsim::router::Router;
 use petgraph::prelude::*;
+// uses rust's built-in graph structure library
 use petgraph::stable_graph::StableGraph;
 use thiserror::Error;
 

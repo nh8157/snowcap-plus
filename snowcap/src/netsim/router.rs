@@ -83,6 +83,7 @@ impl Clone for Router {
 }
 
 impl Router {
+	// creates a new router object
     pub(crate) fn new(name: String, router_id: RouterId, as_id: AsId) -> Router {
         Router {
             name,
