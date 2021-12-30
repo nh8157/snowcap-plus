@@ -27,8 +27,7 @@ use crate::{Error, Stopper};
 
 use log::*;
 use rand::prelude::*;
-use std::fmt::Result;
-use std::time::{Duration, SystemTime, Instant};
+use std::time::{Duration, SystemTime};
 use utils::fmt_err;
 
 /// # One Strategy To Rule Them All
@@ -271,14 +270,11 @@ impl Strategy for StrategyTRTA {
             };
 
             // search the rem_groups vec in current stack frame for the next option
-            let start = Instant::now();
             let action: StackAction = match self.get_next_option(&mut net, &mut hard_policy, frame)
             {
                 // what does Ok mean here?
                 // no need to find dependency group?
                 Ok(next_idx) => {
-                    let end = start.elapsed();
-                    println!("{:?} to find a valid option", end);
                     // update the current stack frame and prepare the next one
                     // at this level, all the previous configurations don't work with the former ones
                     frame.idx = next_idx + 1;
@@ -311,8 +307,7 @@ impl Strategy for StrategyTRTA {
                     {
                         self.seen_difficult_dependency = true;
                     }
-                    let end = start.elapsed();
-                    println!("{:?} to find an invalid option", end);
+                    println!("Invalid for now");
                     // There exists no option, that we can take, which would lead to a good result!
                     // First, we set the next index to the length of the options, in order to
                     // remember that we have checked everything
@@ -449,6 +444,7 @@ impl StrategyTRTA {
                 });
             }
         }
+
         // if we reach this position, we know that every possible option is bad!
         Err(self.rng.gen_range(frame.idx, frame.rem_groups.len()))
     }
