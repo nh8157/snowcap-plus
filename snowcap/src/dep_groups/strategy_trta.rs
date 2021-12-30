@@ -229,13 +229,21 @@ impl Strategy for StrategyTRTA {
     }
 
     fn work(&mut self, mut abort: Stopper) -> Result<Vec<ConfigModifier>, Error> {
-        // setup the stack with a randomized frame
+        // setup the stack with a randomized frame for ordering
+        // rem_groups refers to the choices remain at this step
         let mut stack = vec![StackFrame::new(0..self.groups.len(), 0, &mut self.rng)];
-        let mut current_sequence: Vec<usize> = vec![];
+        // defines a vector to hold ordered modifiers
+        let mut current_sequence: Vec<usize> = Vec::new();
 
         // clone the network and the hard policies to work with them for the tree exploration
         let mut net = self.net.clone();
         let mut hard_policy = self.hard_policy.clone();
+        
+        println!("########## Invariances ##########");
+        for i in hard_policy.prop_vars.iter() {
+            println!("{}", i);
+        }
+        println!("#################################");
 
         loop {
             // check for iter overflow
@@ -253,6 +261,7 @@ impl Strategy for StrategyTRTA {
 
             // get the latest stack frame
             let frame = match stack.last_mut() {
+                // the modifier on the top of the stack
                 Some(frame) => frame,
                 None => {
                     error!("Could not find any valid ordering!");
@@ -260,16 +269,21 @@ impl Strategy for StrategyTRTA {
                 }
             };
 
-            // search the current stack frame for the next
+            // search the rem_groups vec in current stack frame for the next option
             let action: StackAction = match self.get_next_option(&mut net, &mut hard_policy, frame)
             {
+                // what does Ok mean here?
+                // no need to find dependency group?
                 Ok(next_idx) => {
                     // update the current stack frame and prepare the next one
+                    // at this level, all the previous configurations don't work with the former ones
                     frame.idx = next_idx + 1;
                     // There exists a valid next step! Update the current sequence and the stack
+
+                    // this index extracted from the vectors
                     let next_group_idx = frame.rem_groups[next_idx];
                     current_sequence.push(next_group_idx);
-
+                    println!("{:?}", current_sequence);
                     // check if all groups have been added to the sequence
                     if current_sequence.len() == self.groups.len() {
                         // We are done! found a valid solution!
@@ -279,10 +293,11 @@ impl Strategy for StrategyTRTA {
                         );
                         return Ok(utils::finalize_ordering(&self.groups, &current_sequence));
                     }
-
                     // Prepare the stack action with the new stack frame
                     StackAction::Push(StackFrame::new(
+                        // creates a new frame without the index added to the group
                         frame.rem_groups.iter().cloned().filter(|x| *x != next_group_idx),
+                        // what is the num_undo for?
                         self.groups[next_group_idx].len(),
                         &mut self.rng,
                     ))
@@ -292,11 +307,13 @@ impl Strategy for StrategyTRTA {
                     {
                         self.seen_difficult_dependency = true;
                     }
+                    println!("Invalid for now");
                     // There exists no option, that we can take, which would lead to a good result!
                     // First, we set the next index to the length of the options, in order to
                     // remember that we have checked everything
                     frame.idx = frame.rem_groups.len();
                     // What we do here is try to find a dependency!
+                    // dependencies between what?
                     match self.find_dependency(
                         &mut net,
                         &mut hard_policy,
@@ -307,6 +324,7 @@ impl Strategy for StrategyTRTA {
                         Some((new_group, old_groups)) => {
                             info!("Found a new dependency group!");
                             // add the new ordering to the known groups
+                            // the dependency is added to the self.groups vector
                             utils::add_minimal_ordering_as_new_gorup(
                                 &mut self.groups,
                                 old_groups,
@@ -350,6 +368,8 @@ impl Strategy for StrategyTRTA {
                 StackAction::Reset => {
                     // reset the stack for the new groups, as well as the sequence, the network and
                     // the hard policies
+
+                    // does not quite show the dependency here...
                     stack = vec![StackFrame::new(0..self.groups.len(), 0, &mut self.rng)];
                     current_sequence.clear();
                     net = self.net.clone();
@@ -373,6 +393,9 @@ impl StrategyTRTA {
     ///
     /// In the OK case, the network and the hard policy will remain in the state of the modification
     /// of which the index is returned
+    
+    // seems to be different from the algorithm described in the paper?
+    // as it does not check dependency immediately after encountering a counter-example 
     fn get_next_option(
         &mut self,
         net: &mut Network,
@@ -380,12 +403,15 @@ impl StrategyTRTA {
         frame: &StackFrame,
     ) -> Result<usize, usize> {
         assert!(frame.idx < frame.rem_groups.len());
+        // this loop checks through every option in the rem_group
         for group_pos in frame.idx..frame.rem_groups.len() {
             let group_idx = *frame.rem_groups.get(group_pos).unwrap();
             // perform the modification group
             let mut mod_ok: bool = true;
             let mut num_undo: usize = 0;
             let mut num_undo_policy: usize = 0;
+            // defining the scope of for loop here
+            // only run for once
             'apply_group: for modifier in self.groups[group_idx].iter() {
                 #[cfg(feature = "count-states")]
                 {
@@ -395,6 +421,7 @@ impl StrategyTRTA {
                 if net.apply_modifier(modifier).is_ok() {
                     num_undo_policy += 1;
                     let mut fw_state = net.get_forwarding_state();
+                    // checks whether the order aligns with the policy
                     hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
                     if !hard_policy.check() {
                         mod_ok = false;
@@ -405,7 +432,6 @@ impl StrategyTRTA {
                     break 'apply_group;
                 }
             }
-
             // check if the modifier is ok
             if mod_ok {
                 // everything fine, return the index
@@ -446,6 +472,7 @@ impl StrategyTRTA {
         abort: Stopper,
     ) -> Option<(Vec<ConfigModifier>, Vec<usize>)> {
         // apply the modifier to the network to get the errors
+        println!("Finding dependencies!");
         let mut num_undo = 0;
         let mut num_undo_policy = 0;
         let mut errors = None;
@@ -524,6 +551,7 @@ struct StackFrame {
 
 impl StackFrame {
     fn new(options: impl Iterator<Item = usize>, num_undo: usize, rng: &mut ThreadRng) -> Self {
+        // returns a randomized stack frame
         let mut rem_groups: Vec<usize> = options.collect();
         rem_groups.shuffle(rng);
         Self { num_undo, rem_groups, idx: 0 }

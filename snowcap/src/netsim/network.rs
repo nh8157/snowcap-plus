@@ -20,6 +20,11 @@
 //! This module represents the network topology, applies the configuration, and simulates the
 //! network.
 
+// ACL
+// IP_addr: allow/deny
+// IP_addr&&port: allow/deny
+// IP_addr&&port&&protocol: allow/deny 
+
 #[cfg(feature = "transient-violation")]
 use crate::hard_policies::{Condition, PolicyError};
 use crate::netsim::bgp::{BgpEvent, BgpSessionType};
@@ -143,6 +148,7 @@ pub struct Network {
     routers: HashMap<RouterId, Router>,
     external_routers: HashMap<RouterId, ExternalRouter>,
     known_prefixes: HashSet<Prefix>,
+    // what is this parameter? max computation time?
     stop_after: Option<usize>,
     config: Config,
     queue: EventQueue,
@@ -541,6 +547,7 @@ impl Network {
 
     /// Compute and return the current forwarding state.
     pub fn get_forwarding_state(&self) -> ForwardingState {
+        // faster access of the forwarding table
         ForwardingState::from_net(self)
     }
 
@@ -836,7 +843,9 @@ impl Network {
                     if !self.net.contains_edge(*source, *target) {
                         return Err(NetworkError::RoutersNotConnected(*source, *target));
                     }
+                    // update the link in in dynamic graph
                     self.net.update_edge(*source, *target, *weight);
+                    // call this function to update forwarding table?
                     self.write_igp_fw_tables(parent_event_id, undo)
                 }
                 ConfigExpr::BgpSession { source, target, session_type } => {

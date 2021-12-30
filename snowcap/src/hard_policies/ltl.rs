@@ -127,6 +127,7 @@ impl HardPolicy {
     }
 
     /// Applies a next step to the LTL model
+    // what does it mean?
     pub fn step(
         &mut self,
         net: &mut Network,
@@ -136,8 +137,12 @@ impl HardPolicy {
         let mut new_state = Vec::with_capacity(self.prop_vars.len());
         let mut new_error: Vec<Option<PolicyError>> = Vec::with_capacity(self.prop_vars.len());
 
-        // check all prop_vars
+        // check invariance of the network (prop_vars)
         for v in self.prop_vars.iter() {
+            // iterate through all the policies
+            // writes reachability condition from every node to the external routers
+
+            // does not check communication within BGP domain???
             match v.check(state) {
                 Ok(()) => {
                     new_state.push(true);
@@ -149,10 +154,11 @@ impl HardPolicy {
                 }
             }
         }
-
+        // check example input/output
         // Next, we need to check the reliability
         if !self.reliability.is_empty() {
-            // iterate over all links in the network, deactivating them ony by one
+            // iterate over all links in the network, deactivating them one by one
+            // this checks the reliability condition of the network
             for (a, b) in net.links_symmetric().cloned().collect::<Vec<_>>() {
                 // let link a -- b fail
                 let mut num_undo = 0;
@@ -239,6 +245,7 @@ impl HardPolicy {
         }
 
         // then, perform the step on the transient state analyzer, and do the check
+        // check waypointing condition during the update
         if self.tsa.is_some() {
             let tsa = self.tsa.as_mut().unwrap();
             tsa.step(net);
@@ -264,12 +271,12 @@ impl HardPolicy {
         // finally, push the changes to the stack
         self.history.push(new_state);
         self.error_history.push(new_error);
-
         Ok(())
     }
 
     /// Undoes the last call to step
     pub fn undo(&mut self) {
+        // revert the change to the network
         self.history.pop();
         self.error_history.pop();
         if self.tsa.is_some() {

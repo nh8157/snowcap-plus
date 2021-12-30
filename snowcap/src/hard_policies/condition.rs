@@ -104,9 +104,14 @@ impl Condition {
     /// `Ok`.
     pub fn check(&self, fw_state: &mut ForwardingState) -> Result<(), PolicyError> {
         match self {
+            // test between every pair of nodes
             Self::Reachable(r, p, c) => match fw_state.get_route(*r, *p) {
+                // for every pair of routers in the network
                 Ok(path) => match c {
+                    // if there is no condition, then just return
                     None => Ok(()),
+                    // if there is some condition, then call the check function 
+                    // to check if the condition is violated
                     Some(c) => c.check(&path, *p),
                 },
                 Err(NetworkError::ForwardingLoop(path)) => {
@@ -118,6 +123,7 @@ impl Condition {
                 Err(e) => panic!("Unrecoverable error detected: {}", e),
             },
             Self::NotReachable(r, p) => match fw_state.get_route(*r, *p) {
+                // no path available then return ok
                 Err(NetworkError::ForwardingBlackHole(_)) => Ok(()),
                 Err(NetworkError::ForwardingLoop(_)) => Ok(()),
                 Err(e) => panic!("Unrecoverable error detected: {}", e),

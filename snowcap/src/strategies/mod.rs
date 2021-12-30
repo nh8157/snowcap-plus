@@ -196,6 +196,7 @@ pub trait Strategy {
 
     /// Main function to find a valid reconfiguration sequence (if it exists) and return it.
     /// The function also returns the number of sequences that were tested.
+    // Implementation specific trait in specific strategy
     fn work(&mut self, abort: Stopper) -> Result<Vec<ConfigModifier>, Error>;
     /// Returns the number of states explored by the strategy.
     ///

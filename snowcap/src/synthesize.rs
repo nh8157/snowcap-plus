@@ -82,10 +82,11 @@ pub fn synthesize(
 
     info!("Solving the problem...");
 
-    // generate PushBackTreeStrategy
+    // generate Strategy That Rule Them All
     let mut strategy = StrategyTRTA::new(net, modifiers, hard_policy, time_limit)?;
 
     // try to solve the problem
+    // strategy to find the ordering
     match strategy.work(Stopper::new()) {
         Ok(sequence) => {
             info!("Found a valid solution!");

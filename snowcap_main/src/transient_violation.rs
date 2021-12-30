@@ -260,6 +260,7 @@ fn perform_sequence_check_condition(
 
     let command = modifiers.get(0).unwrap();
 
+	// checks transient violation here
     let num_correct = match net.apply_modifier_check_transient(&command, transient_conds, n_iter) {
         Ok(n) => n,
         Err(NetworkError::NoEventsToReorder) => return Ok(ConditionResult::NothingToReorder),

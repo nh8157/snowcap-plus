@@ -122,10 +122,13 @@ impl ForwardingState {
         source: RouterId,
         prefix: Prefix,
     ) -> Result<Vec<RouterId>, NetworkError> {
+        // how is it different from the get_route function in netsim
         // check if the router exists
         if source.index() >= self.num_devices {
             return Err(NetworkError::DeviceNotFound(source));
         }
+        // what does the pid refer to here?
+        // perhaps the id of the prefix?
         let pid = self
             .prefixes
             .get(&prefix)

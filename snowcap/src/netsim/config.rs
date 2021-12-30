@@ -247,6 +247,7 @@ impl PartialEq for Config {
 pub enum ConfigExpr {
     /// Sets the link weight of a single link (directional)
     /// TODO make sure that the weight is strictly smaller than infinity.
+    // struct wrapped in enum
     IgpLinkWeight {
         /// Source router for link
         source: RouterId,

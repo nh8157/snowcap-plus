@@ -200,6 +200,7 @@ impl ExampleNetwork for SmallNet {
     ///   - e2 --> b2
     ///   - e4 --> b4
     fn final_config(net: &Network, variant: usize) -> Config {
+        // set a new configuration
         let mut c = Config::new();
 
         let b1 = net.get_router_id("b1").unwrap();
