@@ -19,7 +19,7 @@
 
 use super::{CompleteOrdering, ModifierOrdering};
 use crate::netsim::config::ConfigExpr::{
-    self, BgpRouteMap, BgpSession, IgpLinkWeight, StaticRoute,
+    self, BgpRouteMap, BgpSession, IgpLinkWeight, StaticRoute, AccessControl
 };
 use crate::netsim::config::ConfigModifier::{self, Insert, Remove, Update};
 use crate::netsim::BgpSessionType::*;
@@ -98,6 +98,42 @@ fn order_expr(a: &ConfigExpr, b: &ConfigExpr) -> Ordering {
             Ordering::Equal => ma.order().cmp(&mb.order),
             o => o,
         },
+        (AccessControl { .. }, AccessControl { .. }) => {
+            // TODO
+            Ordering::Equal
+        },
+        (AccessControl { .. }, IgpLinkWeight { .. }) => {
+            // TODO
+            Ordering::Equal
+        },
+        (IgpLinkWeight { .. },  AccessControl { .. }) => {
+            // TODO
+            Ordering::Equal
+        },
+        (AccessControl { .. }, BgpRouteMap { .. }) => {
+            // TODO
+            Ordering::Equal
+        }
+        (BgpRouteMap { .. }, AccessControl { .. }) => {
+            // TODO
+            Ordering::Equal
+        }
+        (AccessControl { .. }, BgpSession { .. }) => {
+            // TODO
+            Ordering::Equal
+        }
+        (BgpSession { .. }, AccessControl { .. }) => {
+            // TODO
+            Ordering::Equal
+        }
+        (AccessControl { .. }, StaticRoute { .. }) => {
+            // TODO
+            Ordering::Equal
+        }
+        (StaticRoute { .. }, AccessControl { .. }) => {
+        // TODO
+            Ordering::Equal
+        } 
     }
 }
 

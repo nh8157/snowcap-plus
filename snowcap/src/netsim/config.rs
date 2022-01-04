@@ -287,6 +287,15 @@ pub enum ConfigExpr {
         /// To which neighbor to forward packets to.
         target: RouterId,
     },
+    /// access control functionality
+    AccessControl {
+        /// on which router the acl is applied
+        router: RouterId,
+        /// which routers are accepted (default *)
+        accept: Vec<RouterId>,
+        /// which routers are denied (default none)
+        deny: Vec<RouterId>,
+    },
 }
 
 impl ConfigExpr {
@@ -313,6 +322,10 @@ impl ConfigExpr {
             ConfigExpr::StaticRoute { router, prefix, target: _ } => {
                 ConfigExprKey::StaticRoute { router: *router, prefix: *prefix }
             }
+            ConfigExpr::AccessControl { router, accept: _, deny: _ } => {
+                let accept = vec![*router];
+                ConfigExprKey::AccessControl {}
+            }
         }
     }
 
@@ -323,6 +336,7 @@ impl ConfigExpr {
             ConfigExpr::BgpSession { source, target, .. } => vec![*source, *target],
             ConfigExpr::BgpRouteMap { router, .. } => vec![*router],
             ConfigExpr::StaticRoute { router, .. } => vec![*router],
+            ConfigExpr::AccessControl { router, .. } => vec![*router],
         }
     }
 }
@@ -374,6 +388,9 @@ pub enum ConfigExprKey {
         /// Prefix for which to configure the router
         prefix: Prefix,
     },
+    /// Key for setting access control on a given router
+    AccessControl {
+    }
 }
 
 /// # Config Modifier

@@ -172,6 +172,7 @@ impl ForwardingState {
                 break (CacheResult::ValidPath, path.len());
             }
         };
+        //println!("{:?} to check an invariance", end);
 
         // update the cache
         // Special case for a forwarding loop, because we need to reconstruct the loop

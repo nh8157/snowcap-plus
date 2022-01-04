@@ -893,6 +893,10 @@ impl Network {
                         .add_static_route(*prefix, *target)?;
                     Ok(())
                 }
+                ConfigExpr::AccessControl { router, accept, deny } => {
+                    // TODO
+                    Ok(())
+                }
             },
             ConfigModifier::Remove(expr) => match expr {
                 ConfigExpr::IgpLinkWeight { source, target, weight: _ } => {
@@ -947,6 +951,10 @@ impl Network {
                         .get_mut(router)
                         .ok_or(NetworkError::DeviceNotFound(*router))?
                         .remove_static_route(*prefix)?;
+                    Ok(())
+                }
+                ConfigExpr::AccessControl { router, accept, deny } => {
+                    // TODO
                     Ok(())
                 }
             },

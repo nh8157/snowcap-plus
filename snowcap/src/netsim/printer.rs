@@ -160,6 +160,10 @@ pub fn config_expr(net: &Network, expr: &ConfigExpr) -> Result<String, NetworkEr
             prefix.0,
             net.get_router_name(*target)?,
         ),
+        &ConfigExpr::AccessControl { .. } => {
+            // TODO
+            String::from("testing")
+        }
     })
 }
 

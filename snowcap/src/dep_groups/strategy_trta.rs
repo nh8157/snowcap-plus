@@ -27,7 +27,7 @@ use crate::{Error, Stopper};
 
 use log::*;
 use rand::prelude::*;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, Instant};
 use utils::fmt_err;
 
 /// # One Strategy To Rule Them All
@@ -231,6 +231,11 @@ impl Strategy for StrategyTRTA {
     fn work(&mut self, mut abort: Stopper) -> Result<Vec<ConfigModifier>, Error> {
         // setup the stack with a randomized frame for ordering
         // rem_groups refers to the choices remain at this step
+        let work_start = Instant::now();
+        let mut dep_ctr: i32 = 0;
+        let mut dep_duration: Duration = Duration::default();
+        let mut opt_ctr: i32 = 0;
+        let mut opt_duration: Duration = Duration::default();
         let mut stack = vec![StackFrame::new(0..self.groups.len(), 0, &mut self.rng)];
         // defines a vector to hold ordered modifiers
         let mut current_sequence: Vec<usize> = Vec::new();
@@ -245,7 +250,12 @@ impl Strategy for StrategyTRTA {
         }
         println!("#################################");
 
+        let mut epoch: i32 = 0;
+
         loop {
+            println!("################################################");
+            println!("################ EPOCH {} STARTS ################", epoch);
+            println!("################################################");
             // check for iter overflow
             if self.stop_time.as_ref().map(|time| time.elapsed().is_ok()).unwrap_or(false) {
                 // time budget is used up!
@@ -268,15 +278,22 @@ impl Strategy for StrategyTRTA {
                     return Err(Error::ProbablyNoSafeOrdering);
                 }
             };
+            let get_option_start = Instant::now();
+            opt_ctr += 1;
+            let result = self.get_next_option(&mut net, &mut hard_policy, frame);
+            let mut find_dependency_end: Option<Duration> = None;
+            let get_option_end = get_option_start.elapsed();
+            opt_duration += get_option_end;
 
             // search the rem_groups vec in current stack frame for the next option
-            let action: StackAction = match self.get_next_option(&mut net, &mut hard_policy, frame)
+            let action: StackAction = match result
             {
                 // what does Ok mean here?
                 // no need to find dependency group?
                 Ok(next_idx) => {
                     // update the current stack frame and prepare the next one
                     // at this level, all the previous configurations don't work with the former ones
+                    println!("{:?} to find a valid option", get_option_end);
                     frame.idx = next_idx + 1;
                     // There exists a valid next step! Update the current sequence and the stack
 
@@ -287,6 +304,14 @@ impl Strategy for StrategyTRTA {
                     // check if all groups have been added to the sequence
                     if current_sequence.len() == self.groups.len() {
                         // We are done! found a valid solution!
+                        let work_end: Duration = work_start.elapsed();
+
+                        println!("\n################################################");
+                        println!("################### SUMMARY ####################");
+                        println!("################################################");
+                        println!("Total duration: {:?}", work_end);
+                        println!("Spent {:?} to explore {} options", opt_duration, opt_ctr);
+                        println!("Spent {:?} to identify {} dependencies", dep_duration, dep_ctr);
                         info!(
                             "Valid solution was found! Learned {} groups",
                             self.groups.iter().filter(|g| g.len() > 1).count()
@@ -307,20 +332,26 @@ impl Strategy for StrategyTRTA {
                     {
                         self.seen_difficult_dependency = true;
                     }
-                    println!("Invalid for now");
+                    println!("{:?} to find an invalid option", get_option_end);
                     // There exists no option, that we can take, which would lead to a good result!
                     // First, we set the next index to the length of the options, in order to
                     // remember that we have checked everything
                     frame.idx = frame.rem_groups.len();
                     // What we do here is try to find a dependency!
                     // dependencies between what?
-                    match self.find_dependency(
+                    let dependency_start = Instant::now();
+                    dep_ctr += 1;
+                    let dep_result =self.find_dependency(
                         &mut net,
                         &mut hard_policy,
                         &current_sequence,
                         frame.rem_groups[check_idx],
                         abort.clone(),
-                    ) {
+                    );
+                    find_dependency_end = Some(dependency_start.elapsed());
+                    println!("{:?} to find a dependency", find_dependency_end.unwrap());
+
+                    match dep_result {
                         Some((new_group, old_groups)) => {
                             info!("Found a new dependency group!");
                             // add the new ordering to the known groups
@@ -342,10 +373,11 @@ impl Strategy for StrategyTRTA {
                     }
                 }
             };
-
             // at this point, the mutable reference to `stack` (i.e., `frame`) is dropped, which
             // means that `stack` is no longer borrowed exclusively.
-
+            if let Some(dur) = find_dependency_end {
+                dep_duration += dur;
+            }
             match action {
                 StackAction::Pop => {
                     // pop the stack, as long as the top frame has no options left
@@ -376,6 +408,8 @@ impl Strategy for StrategyTRTA {
                     hard_policy = self.hard_policy.clone();
                 }
             }
+            println!();
+            epoch += 1;
         }
     }
 
@@ -404,15 +438,21 @@ impl StrategyTRTA {
     ) -> Result<usize, usize> {
         assert!(frame.idx < frame.rem_groups.len());
         // this loop checks through every option in the rem_group
+        let mut ctr = 1;
+        println!("Checking remaining group");
         for group_pos in frame.idx..frame.rem_groups.len() {
+            println!("In stack loop");
             let group_idx = *frame.rem_groups.get(group_pos).unwrap();
             // perform the modification group
             let mut mod_ok: bool = true;
             let mut num_undo: usize = 0;
             let mut num_undo_policy: usize = 0;
             // defining the scope of for loop here
-            // only run for once
+            println!("\tStart apply_group loop");
             'apply_group: for modifier in self.groups[group_idx].iter() {
+                // when a dependency is found, the modifiers would be grouped into
+                // a single object in self.groups[group_idx], thus the loop will
+                // run for more than once
                 #[cfg(feature = "count-states")]
                 {
                     self.num_states += 1;
@@ -422,19 +462,29 @@ impl StrategyTRTA {
                     num_undo_policy += 1;
                     let mut fw_state = net.get_forwarding_state();
                     // checks whether the order aligns with the policy
+                    println!("\t\tChecking option {} against invariances", ctr);
+					// return Ok(()) or Err
                     hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
+					// what does this check function do?
                     if !hard_policy.check() {
+                        ctr += 1;
                         mod_ok = false;
                         break 'apply_group;
+                    } else {
+                        ctr += 1;
                     }
                 } else {
+                    // this patch cannot be applied to the network
+                    ctr += 1;
                     mod_ok = false;
                     break 'apply_group;
                 }
             }
+            println!("\tEnd apply_group");
             // check if the modifier is ok
             if mod_ok {
                 // everything fine, return the index
+                println!("End stack, found a valid solution");
                 return Ok(group_pos);
             } else {
                 // undo the hard policy and the network
@@ -444,7 +494,7 @@ impl StrategyTRTA {
                 });
             }
         }
-
+        println!("End stack, could not find a valid solution");
         // if we reach this position, we know that every possible option is bad!
         Err(self.rng.gen_range(frame.idx, frame.rem_groups.len()))
     }

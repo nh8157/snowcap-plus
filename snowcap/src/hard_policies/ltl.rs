@@ -142,7 +142,6 @@ impl HardPolicy {
             // iterate through all the policies
             // writes reachability condition from every node to the external routers
 
-            // does not check communication within BGP domain???
             match v.check(state) {
                 Ok(()) => {
                     new_state.push(true);
