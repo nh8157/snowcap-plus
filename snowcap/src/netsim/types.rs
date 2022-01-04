@@ -190,6 +190,12 @@ pub enum DeviceError {
     /// Bgp Route Map with the same order already exists
     #[error("Bgp Route Map at order {0} already exists")]
     BgpRouteMapAlreadyExists(usize),
+    /// The same ACL configuration exists!
+    #[error("The same ACL rule exists in router {0:?}")]
+    AclAlreadyExists(RouterId),
+    /// This ACL rule does not exist!
+    #[error("Router {0:?} does not have this ACL rule")]
+    AclDoesNotExist(RouterId),
     /// Bgp Route Map with the chosen order does not exist
     #[error("Bgp Route Map at order {0} doesn't exists")]
     NoBgpRouteMap(usize),

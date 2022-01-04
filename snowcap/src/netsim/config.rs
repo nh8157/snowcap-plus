@@ -111,6 +111,7 @@ impl Config {
         // check if there is an expression which this one would overwrite
         if let Some(old_expr) = self.expr.insert(expr.key(), expr) {
             self.expr.insert(old_expr.key(), old_expr);
+            // same expression has occurred in the Config struct before
             Err(ConfigError::ConfigExprOverload)
         } else {
             Ok(())
@@ -287,13 +288,13 @@ pub enum ConfigExpr {
         /// To which neighbor to forward packets to.
         target: RouterId,
     },
-    /// access control functionality
+    /// Access control functionality
     AccessControl {
-        /// on which router the acl is applied
+        /// On which router the acl is applied
         router: RouterId,
-        /// which routers are accepted (default *)
+        /// Routers accepted (default *)
         accept: Vec<RouterId>,
-        /// which routers are denied (default none)
+        /// Routers are denied (default none)
         deny: Vec<RouterId>,
     },
 }
@@ -323,8 +324,9 @@ impl ConfigExpr {
                 ConfigExprKey::StaticRoute { router: *router, prefix: *prefix }
             }
             ConfigExpr::AccessControl { router, accept: _, deny: _ } => {
-                let accept = vec![*router];
-                ConfigExprKey::AccessControl {}
+                ConfigExprKey::AccessControl {
+                    router: *router,
+                }
             }
         }
     }
@@ -390,6 +392,8 @@ pub enum ConfigExprKey {
     },
     /// Key for setting access control on a given router
     AccessControl {
+        /// The router that has this ACL field
+        router: RouterId,
     }
 }
 

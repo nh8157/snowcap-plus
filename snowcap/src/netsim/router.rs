@@ -60,6 +60,10 @@ pub struct Router {
     /// Stack to undo action from event mesages. Each event processed will push a new vector onto
     /// the stack, containing all actions to perform in order to undo this event.
     undo_stack: Vec<Vec<UndoAction>>,
+    /// Devices accepted access (default *)
+    acl_accept: Vec<RouterId>,
+    /// Device denied access (default None)
+    acl_deny: Vec<RouterId>,
 }
 
 impl Clone for Router {
@@ -78,6 +82,8 @@ impl Clone for Router {
             bgp_route_maps_in: self.bgp_route_maps_in.clone(),
             bgp_route_maps_out: self.bgp_route_maps_out.clone(),
             undo_stack: Vec::new(),
+            acl_accept: self.acl_accept.clone(),
+            acl_deny: self.acl_deny.clone(),
         }
     }
 }
@@ -99,6 +105,8 @@ impl Router {
             bgp_route_maps_in: Vec::new(),
             bgp_route_maps_out: Vec::new(),
             undo_stack: Vec::new(),
+            acl_accept: Vec::new(),
+            acl_deny: Vec::new(),
         }
     }
 
@@ -318,7 +326,9 @@ impl Router {
     }
 
     /// Get the IGP next hop for a prefix
+    // could use an abstract data type here
     pub fn get_next_hop(&self, prefix: Prefix) -> Option<RouterId> {
+        // need to implement the same function for IGP communication
         // first, check the static routes
         if let Some(target) = self.static_routes.get(&prefix) {
             return Some(*target);
@@ -383,6 +393,57 @@ impl Router {
         }
     }
 
+    /// Append new routers to ACL rules
+    pub(crate) fn add_acl_rules(
+        &mut self, 
+        accept: &Vec<RouterId>, 
+        deny: &Vec<RouterId>
+    ) -> Result<(), DeviceError> {
+        // TODO
+        if accept.len() > 0 || deny.len() > 0 {
+            for a in accept.iter() {
+                self.acl_accept.push(*a);
+            }
+            for d in deny.iter() {
+                self.acl_deny.push(*d);
+            }
+            Ok(())
+        } else {
+            Err(DeviceError::AclDoesNotExist(self.router_id()))
+        }
+    }
+
+    /// Remove routers from ACL rules
+    pub(crate) fn remove_acl_rules(
+        &mut self, 
+        accept: &Vec<RouterId>, 
+        deny: &Vec<RouterId>,
+    ) -> Result<(), DeviceError> {
+        // TODO
+        if accept.len() > 0 || deny.len() > 0 {
+            for a in accept.iter() {
+                self.acl_accept.push(*a)
+            }
+            for d in deny.iter() {
+                self.acl_deny.push(*d);
+            }
+            Ok(())
+        } else {
+            Err(DeviceError::AclDoesNotExist(self.router_id()))
+        }
+    }
+
+    /// Modify existing ACL rules
+    pub(crate) fn modify_acl_rules(
+        &mut self, 
+        accept1: &Vec<RouterId>, 
+        deny1: &Vec<RouterId>,
+        accept2: &Vec<RouterId>,
+        deny2: &Vec<RouterId>,
+    ) -> Result<(), DeviceError> {
+        // TODO
+        Ok(())
+    }
     /// establish a bgp session with a peer
     /// `session_type` tells that `target` is in relation to `self`. If `session_type` is
     /// `BgpSessionType::IbgpClient`, then the `target` is added as client to `self`. Update the

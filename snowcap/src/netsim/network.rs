@@ -262,6 +262,7 @@ impl Network {
     /// the network is in an undefined state.
     pub fn set_config(&mut self, config: &Config) -> Result<(), NetworkError> {
         let patch = self.config.get_diff(config);
+        println!("ConfigPatch: {:?}", patch);
         self.apply_patch(&patch)
     }
 
@@ -830,11 +831,11 @@ impl Network {
         parent_event_id: usize,
     ) -> Result<(), NetworkError> {
         // check that the modifier can be applied on the config
+        // self.config is the current configurations on the network
+        // checks if the config can be applied 
+        // if so, appended to the config struct of the network
         self.config.apply_modifier(modifier)?;
         
-        // where does it call the function apply_modifier_check_transient
-        // perhaps in the code applying this modifier
-
         // If the modifier can be applied, then everything is ok and we can do the actual change.
         match modifier {
             ConfigModifier::Insert(expr) => match expr {
@@ -895,6 +896,10 @@ impl Network {
                 }
                 ConfigExpr::AccessControl { router, accept, deny } => {
                     // TODO
+                    self.routers
+                        .get_mut(router)
+                        .ok_or(NetworkError::DeviceNotFound(*router))?
+                        .add_acl_rules(accept, deny)?;
                     Ok(())
                 }
             },
@@ -955,6 +960,10 @@ impl Network {
                 }
                 ConfigExpr::AccessControl { router, accept, deny } => {
                     // TODO
+                    self.routers
+                        .get_mut(router)
+                        .ok_or(NetworkError::DeviceNotFound(*router))?
+                        .remove_acl_rules(accept, deny)?;
                     Ok(())
                 }
             },
@@ -1026,9 +1035,22 @@ impl Network {
                         .modify_static_route(*p1, *t)?;
                     Ok(())
                 }
-                _ => Err(NetworkError::ConfigError(ConfigError::ConfigModifierError(
-                    modifier.clone(),
-                ))),
+                (
+                    ConfigExpr::AccessControl { router: router1, accept: accept1, deny: deny1 },
+                    ConfigExpr::AccessControl { router: router2, accept: accept2, deny: deny2 }
+                ) if router1 == router2 => {
+                    // check if the router before and after are the same
+                    self.routers
+                        .get_mut(router1)
+                        .ok_or(NetworkError::DeviceNotFound(*router1))?
+                        .modify_acl_rules(accept1, deny1, accept2, deny2)?;
+                    Ok(())
+                }
+                _ => {
+                    Err(NetworkError::ConfigError(ConfigError::ConfigModifierError(
+                        modifier.clone()
+                    )))
+                }
             },
         }
     }

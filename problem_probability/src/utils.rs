@@ -261,6 +261,9 @@ pub fn do_router_based_random_reconfiguration_with_fail_magnitude(
                         .push(m.clone()),
                 }
             }
+            (ConfigExpr::AccessControl { .. }, _, _) => {
+                // TODO
+            }
         }
     }
 
