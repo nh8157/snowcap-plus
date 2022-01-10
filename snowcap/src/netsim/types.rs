@@ -41,9 +41,15 @@ pub struct AsId(pub u32);
 pub type LinkWeight = f32;
 /// IGP Network graph
 pub type IgpNetwork = StableGraph<(), LinkWeight, Directed, IndexType>;
+#[derive(Debug)]
 pub enum ACL {
     Accept,
     Deny,
+}
+#[derive(Debug)]
+pub enum Destination {
+    BGP(Prefix),
+    IGP(RouterId),
 }
 
 /// Configuration Error

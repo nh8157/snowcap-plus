@@ -19,13 +19,14 @@
 
 use crate::netsim::bgp::{BgpEvent, BgpRibEntry, BgpRoute, BgpSessionType};
 use crate::netsim::route_map::RouteMap;
-use crate::netsim::types::{IgpNetwork, ACL};
+use crate::netsim::types::{IgpNetwork, ACL, Destination};
 use crate::netsim::{AsId, DeviceError, LinkWeight, Prefix, RouterId};
 use crate::netsim::{Event, EventQueue};
 use log::*;
 use petgraph::algo::bellman_ford;
 use std::collections::{hash_map::Iter, HashMap, HashSet};
 use std::iter::FromIterator;
+use std::ops::RangeBounds;
 
 /// Bgp Router
 #[derive(Debug)]
@@ -342,12 +343,37 @@ impl Router {
             None => None,
         }
     }
-
-    /// Get the IGP next hop for a IGP router
-    pub fn get_next_hop_igp(&self, r_id: RouterId) -> Option<RouterId> {
-        // use the built-in igp_forwarding_table for indexing
-        None
+    
+    /// New function that supports IGP next hop
+    pub fn get_next_hop_new(&self,  send: RouterId, dest: Destination) -> Option<RouterId> {
+        // check whether it is of type RouterId or Prefix
+        // first, check the static routes
+        // first check accessibility
+        match self.check_access(&send) {
+            true => {
+                match dest {
+                    Destination::BGP(prefix) => {
+                        // handle Prefix
+                        if let Some(target) = self.static_routes.get(&prefix) {
+                            return Some(*target);
+                        };
+                        // then, check the bgp table
+                        match self.bgp_rib.get(&prefix) {
+                            Some(entry) => {
+                                self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0)
+                            }
+                            None => None,
+                        }
+                    }
+                    Destination::IGP(router) => {
+                        self.igp_forwarding_table.get(&router).unwrap().map(|e| e.0)
+                    }
+                }
+            }
+            false => None
+        }
     }
+
 
     /// Return a list of all known bgp routes for a given origin
     pub fn get_known_bgp_routes(&self, prefix: Prefix) -> Result<Vec<BgpRibEntry>, DeviceError> {
@@ -1151,6 +1177,20 @@ impl Router {
             (_, BgpSessionType::IBgpClient) => true,
             _ => false,
         })
+    }
+
+    /// Checks if the router accepts traffic from this sender
+    fn check_access(&self, sender: &RouterId) -> bool {
+        if self.acl_accept.len() > 0 {
+            // white list mode
+            self.acl_accept.contains(sender)
+        } else {
+            // black list mode
+            // if the sender exists in deny
+            // then return false
+            self.acl_deny.contains(sender)^true
+        }
+        
     }
 }
 
