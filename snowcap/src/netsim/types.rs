@@ -86,6 +86,7 @@ impl<'a> NetworkDevice<'a> {
             Self::None => panic!("`unwrap_internal()` called on a `NetworkDevice::None`"),
         }
     }
+    
 
     /// Returns the Router or **panics**, if the enum is not a `NetworkDevice::ExternalRouter`
     pub fn unwrap_external(self) -> &'a ExternalRouter {
