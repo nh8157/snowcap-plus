@@ -148,7 +148,6 @@ pub struct Network {
     routers: HashMap<RouterId, Router>,
     external_routers: HashMap<RouterId, ExternalRouter>,
     known_prefixes: HashSet<Prefix>,
-    // what is this parameter? max computation time?
     stop_after: Option<usize>,
     config: Config,
     queue: EventQueue,
@@ -262,7 +261,6 @@ impl Network {
     /// the network is in an undefined state.
     pub fn set_config(&mut self, config: &Config) -> Result<(), NetworkError> {
         let patch = self.config.get_diff(config);
-        println!("ConfigPatch: {:?}", patch);
         self.apply_patch(&patch)
     }
 
@@ -273,8 +271,6 @@ impl Network {
     /// while applying a modifier and letting the network converge. If the process fails, the
     /// network is in an undefined state.
     
-    // do new configurations also use this function call?
-
     pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<(), NetworkError> {
         // apply every modifier in order
         self.skip_queue = true;
@@ -1425,6 +1421,8 @@ impl Network {
     */
 
     /// Execute the queue
+    // what is this function for?
+    // entirely for BGP?
     fn do_queue(&mut self) -> Result<(), NetworkError> {
         if self.skip_queue {
             return Ok(());
@@ -1784,7 +1782,7 @@ impl Network {
 
 type ConvergenceRepetition = (Vec<Event>, Vec<Network>);
 
-/// The `PartialEq` implementation checks if two networks are identica. The implementation first
+/// The `PartialEq` implementation checks if two networks are identical. The implementation first
 /// checks "simple" conditions, like the configuration, before checking the state of each individual
 /// router. Use the `Network::weak_eq` function to skip some checks, which can be known beforehand.
 /// This implementation will check the configuration, advertised prefixes and all routers.

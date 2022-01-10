@@ -19,12 +19,13 @@
 
 use crate::netsim::bgp::{BgpEvent, BgpRibEntry, BgpRoute, BgpSessionType};
 use crate::netsim::route_map::RouteMap;
-use crate::netsim::types::IgpNetwork;
+use crate::netsim::types::{IgpNetwork, ACL};
 use crate::netsim::{AsId, DeviceError, LinkWeight, Prefix, RouterId};
 use crate::netsim::{Event, EventQueue};
 use log::*;
 use petgraph::algo::bellman_ford;
 use std::collections::{hash_map::Iter, HashMap, HashSet};
+use std::iter::FromIterator;
 
 /// Bgp Router
 #[derive(Debug)]
@@ -442,8 +443,45 @@ impl Router {
         deny2: &Vec<RouterId>,
     ) -> Result<(), DeviceError> {
         // TODO
+        // compute the set that are in the original vector not in the new vector, remove them
+        // compute the set that are not in the original vector in the new vector, append them
+        self.acl_append_remove(accept1, accept2, ACL::Accept)?;
+        self.acl_append_remove(deny1, deny2, ACL::Deny)?;
+        
         Ok(())
     }
+    
+    // Given the type of ACL, append the new rules, remove the old rules
+    fn acl_append_remove(&mut self, vec1: &Vec<RouterId>, vec2: &Vec<RouterId>, config_type: ACL) -> Result<(), DeviceError> {
+        let set1: HashSet<RouterId> = HashSet::from_iter(vec1.clone());
+        let set2: HashSet<RouterId> = HashSet::from_iter(vec2.clone());
+
+        if set1.len() == 0 && set2.len() == 0 {
+            return Err(DeviceError::AclInvalid);
+        }
+
+        let set_rmv = set1.difference(&set2);
+        let set_apd = set2.difference(&set1);
+
+        let acl_ref: &mut Vec<RouterId>;
+        match config_type {
+            ACL::Accept => acl_ref = self.acl_accept.as_mut(),
+            ACL::Deny => acl_ref = self.acl_deny.as_mut(),
+        }
+        // remove elements in set_rmv
+        for r in set_rmv {
+            // index elements
+            let index = acl_ref.clone().iter().position(|x| *x == *r).unwrap();
+            acl_ref.remove(index);
+        }
+        // append elements in set_apd
+        for a in set_apd {
+            acl_ref.push(*a);
+        }
+
+        Ok(())
+    }
+
     /// establish a bgp session with a peer
     /// `session_type` tells that `target` is in relation to `self`. If `session_type` is
     /// `BgpSessionType::IbgpClient`, then the `target` is added as client to `self`. Update the

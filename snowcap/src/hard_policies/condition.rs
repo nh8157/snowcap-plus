@@ -32,9 +32,13 @@ pub enum Condition {
     /// Condition that a router can reach a prefix, with optional conditions to the path that is
     /// taken.
     Reachable(RouterId, Prefix, Option<PathCondition>),
+    /// Reachability within IGP
+    ReachableIGP(RouterId, RouterId, Option<PathCondition>),
     /// Condition that the rotuer cannot reach the prefix, which means that there exists a black
     /// hole somewhere in between the path.
     NotReachable(RouterId, Prefix),
+    /// Not reachable within IGP
+    NotReachableIGP(RouterId, RouterId),
     /// Condition that the router has a route towards the prefix, even if every possible link in
     /// the network fails. Optionally, you can pass in a path condition, requiring the path when
     /// one of the links fail.
@@ -52,7 +56,14 @@ impl fmt::Display for Condition {
             Self::Reachable(r, p, None) => {
                 write!(f, "Reachability(r{}, prefix {})", r.index(), p.0)
             }
+            Self::ReachableIGP(r1, r2, Some(c)) => {
+                write!(f, "ReachabilityIGP(r{}, r{}, condition{})", r1.index(), r2.index(), c)
+            }
+            Self::ReachableIGP(r1, r2, None) => {
+                write!(f, "ReachabilityIGP(r{}, r{})", r1.index(), r2.index())
+            }
             Self::NotReachable(r, p) => write!(f, "Isolation(r{}, prefix {})", r.index(), p.0),
+            Self::NotReachableIGP(r1, r2) => write!(f, "Isolation(r{}, r{})", r1.index(), r2.index()),
             Self::Reliable(r, p, Some(c)) => {
                 write!(f, "Reliability(r{}, prefix {}, condition {})", r.index(), p.0, c)
             }
@@ -77,8 +88,22 @@ impl Condition {
             Self::Reachable(r, p, None) => {
                 format!("Reachability({}, prefix {})", net.get_router_name(*r).unwrap(), p.0)
             }
+            Self::ReachableIGP(r1, r2, Some(c)) => format!(
+                "ReachabilityIGP(router1 {}, router2 {}, condition {})", 
+                net.get_router_name(*r1).unwrap(), 
+                net.get_router_name(*r2).unwrap(),
+                c.repr_with_name(net)
+            ),
+            Self::ReachableIGP(r1, r2, None) => format!(
+                "ReachabilityIGP(router1 {}, router2 {})",
+                net.get_router_name(*r1).unwrap(),
+                net.get_router_name(*r2).unwrap()
+            ),
             Self::NotReachable(r, p) => {
                 format!("Isolation({}, prefix {})", net.get_router_name(*r).unwrap(), p.0)
+            }
+            Self::NotReachableIGP(r1, r2) => {
+                format!("Isolation(router1 {}, router2 {})", net.get_router_name(*r1).unwrap(), net.get_router_name(*r2).unwrap())
             }
             Self::Reliable(r, p, Some(c)) => format!(
                 "Reliability({}, prefix {}, condition {})",
@@ -122,6 +147,15 @@ impl Condition {
                 }
                 Err(e) => panic!("Unrecoverable error detected: {}", e),
             },
+            Self::ReachableIGP(r1, r2, c) => {
+                // TODO
+                // need to update the get_route function
+                // !!! What if instead of checking every invariance
+                // !!! we identify invariances that might be violated
+                // !!! and check those? Possibly reduce complexity
+
+                Ok(())
+            }
             Self::NotReachable(r, p) => match fw_state.get_route(*r, *p) {
                 // no path available then return ok
                 Err(NetworkError::ForwardingBlackHole(_)) => Ok(()),
@@ -129,6 +163,10 @@ impl Condition {
                 Err(e) => panic!("Unrecoverable error detected: {}", e),
                 Ok(path) => Err(PolicyError::UnallowedPathExists { router: *r, prefix: *p, path }),
             },
+            Self::NotReachableIGP(r1, r2) => {
+                // TODO
+                Ok(())
+            }
             Self::Reliable(_, _, _) => Ok(()),
             Self::TransientPath(_, _, _) => Ok(()),
         }
@@ -148,7 +186,9 @@ impl Condition {
     pub fn router_id(&self) -> RouterId {
         match self {
             Condition::Reachable(r, _, _) => *r,
+            Condition::ReachableIGP(r1, _, _) => *r1,
             Condition::NotReachable(r, _) => *r,
+            Condition::NotReachableIGP(r1, _) => *r1,
             Condition::Reliable(r, _, _) => *r,
             Condition::TransientPath(r, _, _) => *r,
         }
@@ -161,11 +201,12 @@ impl Condition {
             Condition::NotReachable(_, p) => *p,
             Condition::Reliable(_, p, _) => *p,
             Condition::TransientPath(_, p, _) => *p,
+            _ => Prefix(0)
         }
     }
 }
 
-/// Condition on the path, which may be either to require that the path passes through a specirif
+/// Condition on the path, which may be either to require that the path passes through a specific
 /// node, or that the path traverses a specific edge.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PathCondition {

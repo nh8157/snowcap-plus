@@ -41,6 +41,10 @@ pub struct AsId(pub u32);
 pub type LinkWeight = f32;
 /// IGP Network graph
 pub type IgpNetwork = StableGraph<(), LinkWeight, Directed, IndexType>;
+pub enum ACL {
+    Accept,
+    Deny,
+}
 
 /// Configuration Error
 #[derive(Error, Debug, PartialEq)]
@@ -196,6 +200,9 @@ pub enum DeviceError {
     /// This ACL rule does not exist!
     #[error("Router {0:?} does not have this ACL rule")]
     AclDoesNotExist(RouterId),
+    /// Unknow error for ACL rules
+    #[error("Invalid ACL rules")]
+    AclInvalid,
     /// Bgp Route Map with the chosen order does not exist
     #[error("Bgp Route Map at order {0} doesn't exists")]
     NoBgpRouteMap(usize),

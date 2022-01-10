@@ -205,6 +205,7 @@ impl Config {
             let self_e = self.expr.get(k).unwrap();
             let other_e = other.expr.get(k).unwrap();
             if self_e != other_e {
+                // returns the entire set different from the other
                 patch.add(ConfigModifier::Update { from: self_e.clone(), to: other_e.clone() })
             }
         }
