@@ -29,6 +29,7 @@ use std::boxed::Box;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::time::Instant;
 
 /// Type alias for comfortable handling of the watch errors
 pub type WatchErrors = (Vec<usize>, Vec<Option<PolicyError>>);
@@ -52,6 +53,17 @@ pub struct HardPolicy {
 }
 
 impl HardPolicy {
+    /// New function for IGP reachability
+    pub fn reachability_igp<'r1, 'r2, R1, R2>(routers1: R1, routers2: R2) -> Self
+    where
+        R1: Iterator<Item = &'r1 RouterId> + Clone,
+        R2: Iterator<Item = &'r2 RouterId> + Clone,
+    {
+        let prop_vars: Vec<Condition> = 
+            iproduct!(routers1, routers2).map(|(r1, r2)| Condition::ReachableIGP(*r1, *r2, None)).collect();
+        Self::globally(prop_vars)
+    }
+
     /// Helper function to generate the reachability policy
     pub fn reachability<'r, 'p, R, P>(routers: R, prefixes: P) -> Self
     where
@@ -138,6 +150,7 @@ impl HardPolicy {
         let mut new_error: Vec<Option<PolicyError>> = Vec::with_capacity(self.prop_vars.len());
 
         // check invariance of the network (prop_vars)
+        let start = Instant::now();
         for v in self.prop_vars.iter() {
             // iterate through all the policies
             // writes reachability condition from every node to the external routers
@@ -153,11 +166,12 @@ impl HardPolicy {
                 }
             }
         }
+        let end = start.elapsed();
         // check example input/output
         // Next, we need to check the reliability
         if !self.reliability.is_empty() {
             // iterate over all links in the network, deactivating them one by one
-            // this checks the reliability condition of the network
+            // this checks the reliability condition of the network (if any)
             for (a, b) in net.links_symmetric().cloned().collect::<Vec<_>>() {
                 // let link a -- b fail
                 let mut num_undo = 0;

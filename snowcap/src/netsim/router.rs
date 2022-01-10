@@ -343,6 +343,12 @@ impl Router {
         }
     }
 
+    /// Get the IGP next hop for a IGP router
+    pub fn get_next_hop_igp(&self, r_id: RouterId) -> Option<RouterId> {
+        // use the built-in igp_forwarding_table for indexing
+        None
+    }
+
     /// Return a list of all known bgp routes for a given origin
     pub fn get_known_bgp_routes(&self, prefix: Prefix) -> Result<Vec<BgpRibEntry>, DeviceError> {
         let mut entries: Vec<BgpRibEntry> = Vec::new();

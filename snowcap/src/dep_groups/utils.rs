@@ -28,7 +28,7 @@ use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
 
 use log::*;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, Instant};
 
 /// # Finding Dependencies
 ///
@@ -77,6 +77,7 @@ where
     // .--------.
     // | Step 1 | Reduction Phase
     // '--------'
+    let reduction_start = Instant::now();
     let (mut reduced_ordering, mut errors) = reduce_to_minimal_problem(
         net,
         groups,
@@ -86,6 +87,8 @@ where
         #[cfg(feature = "count-states")]
         num_states,
     );
+    let reduction_end = reduction_start.elapsed();
+    println!("\tReduction Phase {:?}", reduction_end);
 
     loop {
         // .--------.
@@ -104,7 +107,7 @@ where
                 time_remaining
             }
         });
-
+        let solve_start = Instant::now();
         match check_minimal_problem::<S>(
             net,
             groups,
@@ -117,6 +120,8 @@ where
         ) {
             Ok(new_group) => {
                 // Found a group which works!
+                let solve_end = solve_start.elapsed();
+                println!("\tSolve phase {:?}", solve_end);
                 return Some((new_group, reduced_ordering));
             }
             Err(Error::Timeout) | Err(Error::Abort) => {
@@ -128,10 +133,13 @@ where
                 }
             }
         }
+        let solve_end = solve_start.elapsed();
+        println!("\tSolve phase {:?}", solve_end);
 
         // .--------.
         // | Step 3 | Expansion phase
         // '--------'
+        let expand_start = Instant::now();
         match extend_minimal_problem(
             net,
             groups,
@@ -161,6 +169,8 @@ where
                 return None;
             }
         }
+        let expand_end = expand_start.elapsed();
+        println!("\tExpand phase {:?}", expand_end);
     }
 }
 

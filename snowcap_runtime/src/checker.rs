@@ -103,6 +103,12 @@ pub fn check(
                     }
                 }
             }
+            Condition::ReachableIGP(router1, router2, Some(c)) => {
+
+            }
+            Condition::ReachableIGP(router1, router2, None) => {
+
+            }
             Condition::NotReachable(router, prefix) => {
                 let client: RouterId = (router.index() as u32 + CLIENT_ID_BASE).into();
                 let router_name = phys_net.router_name(*router);
@@ -131,6 +137,9 @@ pub fn check(
                         }
                     }
                 }
+            }
+            Condition::NotReachableIGP(router1, router2) => {
+                
             }
             Condition::Reliable(_, _, _) => info!("Skipping reliability condition"),
             Condition::TransientPath(_, _, _) => info!("Skipping transient path condition"),

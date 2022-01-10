@@ -25,6 +25,7 @@ use crate::netsim::{ForwardingState, Network, NetworkError, Prefix, RouterId};
 
 use itertools::iproduct;
 use std::fmt;
+use std::time::Instant;
 
 /// Condition that can be checked for either being true or false.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,8 +44,10 @@ pub enum Condition {
     /// the network fails. Optionally, you can pass in a path condition, requiring the path when
     /// one of the links fail.
     Reliable(RouterId, Prefix, Option<PathCondition>),
+    // add ReliableIGP
     /// Condition on the path during transient state
     TransientPath(RouterId, Prefix, PathCondition),
+    // add TransientPathIGP
 }
 
 impl fmt::Display for Condition {
@@ -130,23 +133,28 @@ impl Condition {
     pub fn check(&self, fw_state: &mut ForwardingState) -> Result<(), PolicyError> {
         match self {
             // test between every pair of nodes
-            Self::Reachable(r, p, c) => match fw_state.get_route(*r, *p) {
-                // for every pair of routers in the network
-                Ok(path) => match c {
-                    // if there is no condition, then just return
-                    None => Ok(()),
-                    // if there is some condition, then call the check function 
-                    // to check if the condition is violated
-                    Some(c) => c.check(&path, *p),
-                },
-                Err(NetworkError::ForwardingLoop(path)) => {
-                    Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), prefix: *p })
+            Self::Reachable(r, p, c) => {
+                let get_route_start = Instant::now();
+                let r_result = fw_state.get_route(*r, *p);
+                let get_route_end = get_route_start.elapsed();
+                match r_result {
+                    // for every pair of routers in the network
+                    Ok(path) => match c {
+                        // if there is no condition, then just return
+                        None => Ok(()),
+                        // if there is some condition, then call the check function 
+                        // to check if the condition is violated
+                        Some(c) => c.check(&path, *p),
+                    },
+                    Err(NetworkError::ForwardingLoop(path)) => {
+                        Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), prefix: *p })
+                    }
+                    Err(NetworkError::ForwardingBlackHole(path)) => {
+                        Err(PolicyError::BlackHole { router: *path.last().unwrap(), prefix: *p })
+                    }
+                    Err(e) => panic!("Unrecoverable error detected: {}", e),
                 }
-                Err(NetworkError::ForwardingBlackHole(path)) => {
-                    Err(PolicyError::BlackHole { router: *path.last().unwrap(), prefix: *p })
-                }
-                Err(e) => panic!("Unrecoverable error detected: {}", e),
-            },
+            }
             Self::ReachableIGP(r1, r2, c) => {
                 // TODO
                 // need to update the get_route function

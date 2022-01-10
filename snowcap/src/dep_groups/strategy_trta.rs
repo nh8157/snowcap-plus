@@ -458,27 +458,38 @@ impl StrategyTRTA {
                     self.num_states += 1;
                 }
                 num_undo += 1;
-                if net.apply_modifier(modifier).is_ok() {
-                    num_undo_policy += 1;
-                    let mut fw_state = net.get_forwarding_state();
-                    // checks whether the order aligns with the policy
-                    println!("\t\tChecking option {} against invariances", ctr);
-					// return Ok(()) or Err
-                    hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
-					// what does this check function do?
-                    if !hard_policy.check() {
+
+                let mod_start = Instant::now();
+                let mod_result = net.apply_modifier(modifier);
+                let mod_end = mod_start.elapsed();
+                println!("\tapply_modifier {:?}", mod_end);
+
+                match mod_result {
+                    Ok(()) => {
+                        num_undo_policy += 1;
+                        let mut fw_state = net.get_forwarding_state();
+                        // checks whether the order aligns with the policy
+                        println!("\t\tChecking option {} against invariances", ctr);
+                        // return Ok(()) or Err
+                        let hard_start = Instant::now();
+                        hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
+                        let hard_end = hard_start.elapsed();
+                        println!("\t\tChecking invariances {:?}", hard_end);
+                        // what does this check function do?
+                        if !hard_policy.check() {
+                            ctr += 1;
+                            mod_ok = false;
+                            break 'apply_group;
+                        } else {
+                            ctr += 1;
+                        }
+                    }
+                    _ => {
                         ctr += 1;
                         mod_ok = false;
                         break 'apply_group;
-                    } else {
-                        ctr += 1;
                     }
-                } else {
-                    // this patch cannot be applied to the network
-                    ctr += 1;
-                    mod_ok = false;
-                    break 'apply_group;
-                }
+                } 
             }
             println!("\tEnd apply_group");
             // check if the modifier is ok
@@ -489,9 +500,12 @@ impl StrategyTRTA {
             } else {
                 // undo the hard policy and the network
                 (0..num_undo_policy).for_each(|_| hard_policy.undo());
+                let undo_start = Instant::now();
                 (0..num_undo).for_each(|_| {
                     net.undo_action().expect("Cannot perform undo!");
                 });
+                let undo_end = undo_start.elapsed();
+                println!("\tUndo actions {:?}", undo_end);
             }
         }
         println!("End stack, could not find a valid solution");

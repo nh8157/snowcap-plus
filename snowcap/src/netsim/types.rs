@@ -217,6 +217,9 @@ pub enum DeviceError {
 /// Network Errors
 #[derive(Error, Debug, PartialEq)]
 pub enum NetworkError {
+    /// The origin of the packet is denied from accessing the router
+    #[error("Access Denied {0:?}")]
+    AccessDenied(RouterId),
     /// Device Error which cannot be handled
     #[error("Device Error: {0}")]
     DeviceError(#[from] DeviceError),
