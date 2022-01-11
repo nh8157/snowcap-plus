@@ -161,9 +161,9 @@ impl Router {
                     self.undo_stack.last_mut().unwrap().push(UndoAction::RemoveKnownPrefix(prefix));
                 };
                 // phase 2
-                let previous_next_hop = self.get_next_hop(prefix);
+                let previous_next_hop = self.get_next_hop(Destination::BGP(prefix));
                 self.run_bgp_decision_process_for_prefix(prefix)?;
-                let new_next_hop = self.get_next_hop(prefix);
+                let new_next_hop = self.get_next_hop(Destination::BGP(prefix));
                 // phase 3
                 self.run_bgp_route_dissemination_for_prefix(prefix, queue, parent_event_id)?;
                 // return wether the forwarding state has changed
@@ -329,7 +329,7 @@ impl Router {
 
     /// Get the IGP next hop for a prefix
     // could use an abstract data type here
-    pub fn get_next_hop(&self, prefix: Prefix) -> Option<RouterId> {
+    pub fn get_next_hop_legacy(&self, prefix: Prefix) -> Option<RouterId> {
         // need to implement the same function for IGP communication
         // first, check the static routes
         if let Some(target) = self.static_routes.get(&prefix) {
@@ -345,35 +345,30 @@ impl Router {
     }
     
     /// New function that supports IGP next hop
-    pub fn get_next_hop_new(&self,  send: RouterId, dest: Destination) -> Option<RouterId> {
+    pub fn get_next_hop(&self, dest: Destination) -> Option<RouterId> {
         // check whether it is of type RouterId or Prefix
         // first, check the static routes
         // first check accessibility
-        match self.check_access(&send) {
-            true => {
-                match dest {
-                    Destination::BGP(prefix) => {
-                        // handle Prefix
-                        if let Some(target) = self.static_routes.get(&prefix) {
-                            return Some(*target);
-                        };
-                        // then, check the bgp table
-                        match self.bgp_rib.get(&prefix) {
-                            Some(entry) => {
-                                self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0)
-                            }
-                            None => None,
-                        }
+        match dest {
+            Destination::BGP(prefix) => {
+                // handle Prefix
+                if let Some(target) = self.static_routes.get(&prefix) {
+                    return Some(*target);
+                };
+                // then, check the bgp table
+                match self.bgp_rib.get(&prefix) {
+                    Some(entry) => {
+                        self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0)
                     }
-                    Destination::IGP(router) => {
-                        self.igp_forwarding_table.get(&router).unwrap().map(|e| e.0)
-                    }
+                    None => None,
                 }
             }
-            false => None
+            Destination::IGP(router) => {
+                // need to implement static route here
+                self.igp_forwarding_table.get(&router).unwrap().map(|e| e.0)
+            }
         }
     }
-
 
     /// Return a list of all known bgp routes for a given origin
     pub fn get_known_bgp_routes(&self, prefix: Prefix) -> Result<Vec<BgpRibEntry>, DeviceError> {

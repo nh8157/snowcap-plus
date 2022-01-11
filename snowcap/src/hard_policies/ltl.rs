@@ -139,7 +139,6 @@ impl HardPolicy {
     }
 
     /// Applies a next step to the LTL model
-    // what does it mean?
     pub fn step(
         &mut self,
         net: &mut Network,

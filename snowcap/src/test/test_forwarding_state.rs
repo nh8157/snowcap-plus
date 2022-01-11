@@ -18,6 +18,7 @@
 use crate::netsim::config::{Config, ConfigExpr::*};
 use crate::netsim::route_map::*;
 use crate::netsim::{AsId, BgpSessionType::*, Network, Prefix};
+use crate::netsim::types::Destination;
 
 #[test]
 fn test_forwarding_state_carousel_gadget() {
@@ -183,7 +184,7 @@ fn test_forwarding_state_carousel_gadget() {
         for router in routers.iter() {
             for prefix in net.get_known_prefixes() {
                 assert_eq!(
-                    net.get_device(*router).unwrap_internal().get_next_hop(*prefix),
+                    net.get_device(*router).unwrap_internal().get_next_hop(Destination::BGP(*prefix)),
                     state.get_next_hop(*router, *prefix).unwrap(),
                     "Invalid next-hop at {} for prefix {}",
                     net.get_router_name(*router).unwrap(),

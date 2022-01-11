@@ -34,7 +34,7 @@ use crate::netsim::external_router::ExternalRouter;
 use crate::netsim::printer;
 use crate::netsim::route_map::RouteMapDirection;
 use crate::netsim::router::Router;
-use crate::netsim::types::{IgpNetwork, NetworkDevice};
+use crate::netsim::types::{IgpNetwork, NetworkDevice, Destination};
 use crate::netsim::{
     AsId, ConfigError, ForwardingState, LinkWeight, NetworkError, Prefix, RouterId,
 };
@@ -548,6 +548,11 @@ impl Network {
         ForwardingState::from_net(self)
     }
 
+    /// Return forwarding state containing IGP comm
+    pub fn get_forwarding_state_new(&self) -> ForwardingState{
+        ForwardingState::from_net_new(self)
+    }
+
     // ********************
     // * Helper Functions *
     // ********************
@@ -703,7 +708,7 @@ impl Network {
                     return Err(NetworkError::ForwardingLoop(result));
                 }
                 // gets the id of the next hop to visit the destination
-                current_node = match r.get_next_hop(prefix) {
+                current_node = match r.get_next_hop(Destination::BGP(prefix)) {
                     // unwrap option value
                     Some(router_id) => router_id,
                     None => {
