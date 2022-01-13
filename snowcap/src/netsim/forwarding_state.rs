@@ -21,10 +21,10 @@
 
 use crate::netsim::{Network, NetworkDevice, NetworkError, Prefix, RouterId};
 use crate::netsim::config::{Config, ConfigExpr};
-use crate::netsim::types::Destination;
+use crate::netsim::types::{Destination, ACL};
 use log::*;
 use std::collections::{HashMap, HashSet};
-use std::iter::{repeat, Peekable};
+use std::iter::{repeat, Peekable, FromIterator};
 use std::vec::IntoIter;
 
 use super::router::Router;
@@ -51,6 +51,8 @@ pub struct ForwardingState {
     /// with usize being the index
     /// to the `RouterId`.
     state: Vec<Option<RouterId>>,
+    /// Storing ACL rules of all routers
+    acl: Vec<Option<(ACL, HashSet<RouterId>)>>,
     /// Lookup for the Prefix
     pub(self) prefixes: HashMap<Prefix, usize>,
     /// Lookup for IGP routers
@@ -124,8 +126,8 @@ impl ForwardingState {
 
         // prepare the cache
         let cache = repeat(None).take(num_prefixes * num_devices).collect();
-
-        Self { num_prefixes, num_devices, state, prefixes, routers, external_routers, cache }
+        let acl: Vec<Option<(ACL, HashSet<RouterId>)>> = Vec::new();
+        Self { num_prefixes, num_devices, state, acl, prefixes, routers, external_routers, cache }
     }
 
     /// New function that returns a forwarding state object indexing IGP communication
@@ -177,7 +179,7 @@ impl ForwardingState {
             }
         }
 
-        // collect the external routers, and chagne the forwarding state such that we remember which
+        // collect the external routers, and change the forwarding state such that we remember which
         // prefix they know a route to.
         let external_routers: HashSet<RouterId> = net.get_external_routers().into_iter().collect();
         for r in external_routers.iter() {
@@ -192,10 +194,22 @@ impl ForwardingState {
             }
         }
 
+        // initialize ACL
+        let mut acl: Vec<Option<(ACL, HashSet<RouterId>)>> = 
+            repeat(None).take(num_devices).collect();
+        // assign values to ACL
+        for rid in 0..num_devices as u32 {
+            let router = net.get_device(rid.into());
+            if let NetworkDevice::InternalRouter(r) = router {
+                let (mode, acl_router) = r.get_acl().unwrap();
+                let idx = routers.iter().position(|rid| *rid == r.router_id()).unwrap();
+                acl[idx] = Some((mode, acl_router));
+            }
+        }
         // prepare the cache
         let cache = repeat(None).take((num_prefixes + num_devices) * num_devices).collect();
 
-        Self { num_prefixes, num_devices, state, prefixes, routers, external_routers, cache }
+        Self { num_prefixes, num_devices, state, acl, prefixes, routers, external_routers, cache }
     }
 
     /// Returns the route from the source router to a specific prefix. This function uses the cached
@@ -315,7 +329,7 @@ impl ForwardingState {
         let mut current_idx: usize;
         let mut visited_routers: HashSet<RouterId> = HashSet::new();
         let mut path: Vec<RouterId> = Vec::new();
-
+                
         match dest {
             Destination::IGP(r) => {
                 if !self.routers.contains(&r) {
@@ -325,31 +339,88 @@ impl ForwardingState {
                 }
             }
             Destination::BGP(p) => {
-                if let Some(result) = self.prefixes.get(&p){
-                    // everything is fine       
-                } else {
+                if let None = self.prefixes.get(&p){
                     return Err(NetworkError::ForwardingBlackHole(vec![src]));
+                } else {
+                    // everything is fine
                 }
             }
         }
-        loop {
-            path.push(current_node);
+        let (result, mut update_cache_upto) = loop {
             current_idx = get_idx_new(current_node, &dest, &self.prefixes, &self.routers);
             
-            if !visited_routers.insert(current_node) {
-                break Err(NetworkError::ForwardingLoop(path));
+            // check if the route already exists in cache
+            if let Some((mut r, c)) = self.get_cache(current_node, &dest) {
+                println!("Using cache");
+                // test if access is accepted along the path
+                for router in c {
+                    if !self.check_access(src, router) {
+                        path.push(router);
+                    } else {
+                        r = CacheResult::AccessDenied;
+                        break;
+                    }
+                }
+                break (r, path.len());
             }
 
-            if let Some(r) = self.state[current_idx] {
-                if r == current_node {
-                    // has arrived at the destination
-                    break Ok(path);
-                } else {
-                    current_node = r;
-                }
-            } else {
-                break Err(NetworkError::ForwardingBlackHole(path));
+            path.push(current_node);
+
+            if !visited_routers.insert(current_node) {
+                // the router was visited before, forwarding loop detected
+                break (CacheResult::ForwardingLoop, path.len());
             }
+
+            // println!("At router {:?}", current_node);
+            match &self.state[current_idx] {
+                Some(r) => {
+                    // check if access is denied here
+                    if self.check_access(src, current_node) {
+                        if *r == current_node {
+                            // has arrived at the destination
+                            break (CacheResult::ValidPath, path.len());
+                        } else {
+                            current_node = *r;
+                        }
+                    } else {
+                        break (CacheResult::AccessDenied, path.len());
+                    }    
+                    // not intercepted by acl rules
+                }
+                None => break (CacheResult::BlackHole, path.len()),
+            }   
+        };
+
+        // records the looped part for each node along the loop
+        if result == CacheResult::ForwardingLoop && update_cache_upto == path.len() {
+            // find the first position of the last element, which must occur twice
+            let loop_rid = path.last().unwrap();
+            let loop_pos = path.iter().position(|x| x == loop_rid).unwrap();
+            let mut tmp_loop_path = path.iter().skip(loop_pos).cloned().collect::<Vec<_>>();
+            for (update_id, router) in
+                path.iter().enumerate().take(update_cache_upto - 1).skip(loop_pos)
+            {
+                self.cache[get_idx_new(*router, &dest, &self.prefixes, &self.routers)] =
+                    Some((result, tmp_loop_path.clone()));
+                if update_id < update_cache_upto - 1 {
+                    tmp_loop_path.remove(0);
+                    tmp_loop_path.push(tmp_loop_path[0]);
+                }
+            }
+            update_cache_upto = loop_pos;
+        }
+
+        // insert the newest path into cache
+        for idx in 0..update_cache_upto {
+            self.cache[get_idx_new(path[idx], &dest, &self.prefixes, &self.routers)] = 
+                Some((result, path.iter().skip(idx).cloned().collect()));
+        }
+
+        match result {
+            CacheResult::ValidPath => Ok(path),
+            CacheResult::BlackHole => Err(NetworkError::ForwardingBlackHole(path)),
+            CacheResult::ForwardingLoop => Err(NetworkError::ForwardingLoop(path)),
+            CacheResult::AccessDenied => Err(NetworkError::AccessDenied(*path.last().unwrap())),
         }
     }
 
@@ -370,6 +441,32 @@ impl ForwardingState {
         } else {
             Ok(None)
         }
+    }
+
+    fn get_cache(&self, src: RouterId, dest: &Destination) -> Option<(CacheResult, Vec<RouterId>)>{
+        let idx = get_idx_new(src, &dest, &self.prefixes, &self.routers);
+        self.cache[idx].clone()
+    }
+
+    fn check_access(&self, src: RouterId, dest: RouterId) -> bool {
+        let idx = self.routers.iter().position(|rid| *rid == dest).unwrap();
+        if let Some((mode, acl)) = &self.acl[idx] {
+            // println!("Checking ACL on {:?}", current_node);
+            // println!("ACL: {:?}", acl);
+            match mode {
+                ACL::Accept => {
+                    if !acl.contains(&src) {
+                        return false;
+                    }
+                }
+                ACL::Deny => {
+                    if acl.contains(&src) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 }
 
@@ -456,7 +553,6 @@ mod test {
         let r0 = net.add_router("r0");
         let r1 = net.add_router("r1");
         let r2 = net.add_router("r2");
-        let r3 = net.add_router("r3");
         net.add_link(r0, r1);
         net.add_link(r0, r2);
         net.add_link(r1, r2);
@@ -477,14 +573,21 @@ mod test {
             target: r0,
             weight: 1.0,
         }).unwrap();
+        config.add(ConfigExpr::AccessControl {
+            router: r2,
+            accept: vec![],
+            deny: vec![r0],
+        }).unwrap();
 
         net.set_config(&config).unwrap();
         let mut fw = net.get_forwarding_state_new();
 
-        let route1 = fw.get_route_new(r0, Destination::IGP(r1));
-        let route2 = fw.get_route_new(r0, Destination::IGP(r3));
-        assert_eq!(route1, Ok(vec![r0, r1]));
-        assert_eq!(route2, Err(NetworkError::ForwardingBlackHole(vec![r0])));
+        let route1 = fw.get_route_new(r1, Destination::IGP(r2));
+        let route2 = fw.get_route_new(r0, Destination::IGP(r2));
+        let (r, p) = fw.get_cache(r1, &Destination::IGP(r2)).unwrap();
+        println!("{:?}, {:?}", r, p);
+        assert_eq!(route1, Ok(vec![r1, r2]));
+        assert_eq!(route2, Err(NetworkError::AccessDenied(r2)));
     }
     #[test]
     fn test_route() {

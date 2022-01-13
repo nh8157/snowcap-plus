@@ -41,6 +41,8 @@ pub struct ExternalRouter {
     router_id: RouterId,
     as_id: AsId,
     neighbors: Vec<RouterId>,
+    acl_accept: Vec<RouterId>,
+    acl_deny: Vec<RouterId>,
     active_routes: Vec<BgpRoute>,
     undo_stack: Vec<UndoAction>,
 }
@@ -52,6 +54,8 @@ impl Clone for ExternalRouter {
             router_id: self.router_id,
             as_id: self.as_id,
             neighbors: self.neighbors.clone(),
+            acl_accept: self.acl_accept.clone(),
+            acl_deny: self.acl_deny.clone(),
             active_routes: self.active_routes.clone(),
             undo_stack: Vec::new(),
         }
@@ -66,6 +70,8 @@ impl ExternalRouter {
             router_id,
             as_id,
             neighbors: Vec::new(),
+            acl_accept: Vec::new(),
+            acl_deny: Vec::new(),
             active_routes: Vec::new(),
             undo_stack: Vec::new(),
         }

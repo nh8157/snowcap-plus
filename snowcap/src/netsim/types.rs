@@ -41,7 +41,7 @@ pub struct AsId(pub u32);
 pub type LinkWeight = f32;
 /// IGP Network graph
 pub type IgpNetwork = StableGraph<(), LinkWeight, Directed, IndexType>;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ACL {
     Accept,
     Deny,

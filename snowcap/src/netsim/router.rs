@@ -63,6 +63,8 @@ pub struct Router {
     /// the stack, containing all actions to perform in order to undo this event.
     undo_stack: Vec<Vec<UndoAction>>,
     /// Devices accepted access (default *)
+    // probably should use a data structure like (ACL, Vec<>)
+    // default on ACL::Deny
     acl_accept: Vec<RouterId>,
     /// Device denied access (default None)
     acl_deny: Vec<RouterId>,
@@ -132,6 +134,17 @@ impl Router {
     /// destination.
     pub fn get_igp_fw_table(&self) -> &HashMap<RouterId, Option<(RouterId, LinkWeight)>> {
         &self.igp_forwarding_table
+    }
+
+    /// Get ACL rule of the router based on the input (either accept or deny)
+    pub fn get_acl(&self) -> Option<(ACL, HashSet<RouterId>)> {
+        if self.acl_accept.len() > 0 {
+            // router uses accept mode
+            Some((ACL::Accept, HashSet::from_iter(self.acl_accept.iter().cloned())))
+        } else {
+            // router uses deny mode
+            Some((ACL::Deny, HashSet::from_iter(self.acl_deny.iter().cloned())))
+        }
     }
 
     /// handle an `Event`, and enqueue several resulting events. Returns Ok(true) if the forwarding
