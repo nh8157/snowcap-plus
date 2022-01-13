@@ -354,12 +354,11 @@ impl ForwardingState {
                 println!("Using cache");
                 // test if access is accepted along the path
                 for router in c {
+                    path.push(router);
                     if !self.check_access(src, router) {
-                        path.push(router);
-                    } else {
                         r = CacheResult::AccessDenied;
                         break;
-                    }
+                    } 
                 }
                 break (r, path.len());
             }
@@ -391,29 +390,38 @@ impl ForwardingState {
             }   
         };
 
-        // records the looped part for each node along the loop
-        if result == CacheResult::ForwardingLoop && update_cache_upto == path.len() {
-            // find the first position of the last element, which must occur twice
-            let loop_rid = path.last().unwrap();
-            let loop_pos = path.iter().position(|x| x == loop_rid).unwrap();
-            let mut tmp_loop_path = path.iter().skip(loop_pos).cloned().collect::<Vec<_>>();
-            for (update_id, router) in
-                path.iter().enumerate().take(update_cache_upto - 1).skip(loop_pos)
-            {
-                self.cache[get_idx_new(*router, &dest, &self.prefixes, &self.routers)] =
-                    Some((result, tmp_loop_path.clone()));
-                if update_id < update_cache_upto - 1 {
-                    tmp_loop_path.remove(0);
-                    tmp_loop_path.push(tmp_loop_path[0]);
+        match result {
+            CacheResult::AccessDenied => {
+                // only update the src
+                self.cache[get_idx_new(src, &dest, &self.prefixes, &self.routers)] =
+                    Some((result, path.clone()));
+            }
+            _ => {
+                // records the looped part for each node along the loop
+                if result == CacheResult::ForwardingLoop && update_cache_upto == path.len() {
+                    // find the first position of the last element, which must occur twice
+                    let loop_rid = path.last().unwrap();
+                    let loop_pos = path.iter().position(|x| x == loop_rid).unwrap();
+                    let mut tmp_loop_path = path.iter().skip(loop_pos).cloned().collect::<Vec<_>>();
+                    for (update_id, router) in
+                        path.iter().enumerate().take(update_cache_upto - 1).skip(loop_pos)
+                    {
+                        self.cache[get_idx_new(*router, &dest, &self.prefixes, &self.routers)] =
+                            Some((result, tmp_loop_path.clone()));
+                        if update_id < update_cache_upto - 1 {
+                            tmp_loop_path.remove(0);
+                            tmp_loop_path.push(tmp_loop_path[0]);
+                        }
+                    }
+                    update_cache_upto = loop_pos;
+                }
+        
+                // insert the newest path into cache
+                for idx in 0..update_cache_upto {
+                    self.cache[get_idx_new(path[idx], &dest, &self.prefixes, &self.routers)] = 
+                        Some((result, path.iter().skip(idx).cloned().collect()));
                 }
             }
-            update_cache_upto = loop_pos;
-        }
-
-        // insert the newest path into cache
-        for idx in 0..update_cache_upto {
-            self.cache[get_idx_new(path[idx], &dest, &self.prefixes, &self.routers)] = 
-                Some((result, path.iter().skip(idx).cloned().collect()));
         }
 
         match result {
@@ -582,12 +590,13 @@ mod test {
         net.set_config(&config).unwrap();
         let mut fw = net.get_forwarding_state_new();
 
-        let route1 = fw.get_route_new(r1, Destination::IGP(r2));
+        // let route1 = fw.get_route_new(r1, Destination::IGP(r2));
         let route2 = fw.get_route_new(r0, Destination::IGP(r2));
-        let (r, p) = fw.get_cache(r1, &Destination::IGP(r2)).unwrap();
-        println!("{:?}, {:?}", r, p);
-        assert_eq!(route1, Ok(vec![r1, r2]));
+        let (r, p) = fw.get_cache(r0, &Destination::IGP(r2)).unwrap();
+        let cache = fw.get_cache(r1, &Destination::IGP(r2));
+        // assert_eq!(route1, Ok(vec![r1, r2]));
         assert_eq!(route2, Err(NetworkError::AccessDenied(r2)));
+        assert_eq!(cache.is_none(), true);
     }
     #[test]
     fn test_route() {
@@ -597,16 +606,20 @@ mod test {
         // let r3 = 3.into();
         // let r4 = 4.into();
         // let r5 = 5.into();
+        // let acl: Vec<Option<(ACL, HashSet<RouterId>)>> = Vec::new();
+        // let routers = [r0, r1, r2, r3, r4, r5].to_vec();
         // let mut state = ForwardingState {
         //     num_prefixes: 1,
         //     num_devices: 6,
         //     state: vec![Some(r0), Some(r0), Some(r1), Some(r1), Some(r2), None],
+        //     acl: acl,
         //     prefixes: maplit::hashmap![Prefix(0) => 0, ],
+        //     routers,
         //     external_routers: maplit::hashset![r0, r5],
-        //     cache: vec![None, None, None, None, None, None],
+        //     cache: vec![None],
         // };
-        // assert_eq!(state.get_route(r0, Prefix(0)), Ok(vec![r0]));
-        // assert_eq!(state.get_route(r1, Prefix(0)), Ok(vec![r1, r0]));
+        // assert_eq!(state.get_route_new(r0, Destination::BGP(Prefix(0))), Ok(vec![r0]));
+        // assert_eq!(state.get_route_new(r1, Destination::BGP(Prefix(0))), Ok(vec![r1, r0]));
         // assert_eq!(state.get_route(r2, Prefix(0)), Ok(vec![r2, r1, r0]));
         // assert_eq!(state.get_route(r3, Prefix(0)), Ok(vec![r3, r1, r0]));
         // assert_eq!(state.get_route(r4, Prefix(0)), Ok(vec![r4, r2, r1, r0]));
