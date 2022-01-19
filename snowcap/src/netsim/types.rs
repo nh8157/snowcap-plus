@@ -46,7 +46,7 @@ pub enum ACL {
     Accept,
     Deny,
 }
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub enum Destination {
     BGP(Prefix),
     IGP(RouterId),

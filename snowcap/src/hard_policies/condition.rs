@@ -148,10 +148,10 @@ impl Condition {
                         Some(c) => c.check(&path, *p),
                     },
                     Err(NetworkError::ForwardingLoop(path)) => {
-                        Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), prefix: *p })
+                        Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), dest: Destination::BGP(*p) })
                     }
                     Err(NetworkError::ForwardingBlackHole(path)) => {
-                        Err(PolicyError::BlackHole { router: *path.last().unwrap(), prefix: *p })
+                        Err(PolicyError::BlackHole { router: *path.last().unwrap(), dest: Destination::BGP(*p) })
                     }
                     Err(e) => panic!("Unrecoverable error detected: {}", e),
                 }
@@ -170,9 +170,17 @@ impl Condition {
                         // path condition exists
                         Some(cond) => Ok(())
                     },
-                    _ => {
-                        Ok(())
+                    // Err(NetworkError::ForwardingLoop(path)) => {
+                    //     Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), prefix: *p })
+                    // }
+                    // Err(NetworkError::ForwardingBlackHole(path)) => {
+                    //     Err(PolicyError::BlackHole { router: *path.last().unwrap(), prefix: *p })
+                    // }
+                    Err(NetworkError::AccessDenied(router)) => {
+                        Err(PolicyError::AccessDenied {router1: *r1, router2: router})
                     }
+                    // Need to implement other types of policy error for igp
+                    Err(e) => panic!("Unrecoverable error detected: {}", e),
                 }
             }
             Self::NotReachable(r, p) => match fw_state.get_route_new(*r, Destination::BGP(*p)) {
@@ -181,11 +189,14 @@ impl Condition {
                 Err(NetworkError::ForwardingLoop(_)) => Ok(()),
                 Err(NetworkError::AccessDenied(_)) => Ok(()),
                 Err(e) => panic!("Unrecoverable error detected: {}", e),
-                Ok(path) => Err(PolicyError::UnallowedPathExists { router: *r, prefix: *p, path }),
+                Ok(path) => Err(PolicyError::UnallowedPathExists { router: *r, dest: Destination::BGP(*p), path }),
             },
             Self::NotReachableIGP(r1, r2) => {
                 // TODO
                 let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
+                // match r_result {
+                //     // Ok(path) => Err(PolicyError::UnallowedPathExists )
+                // }
                 Ok(())
             }
             Self::Reliable(_, _, _) => Ok(()),
@@ -437,7 +448,7 @@ impl PathCondition {
             Err(PolicyError::PathCondition {
                 path: path.to_owned(),
                 condition: self.clone(),
-                prefix,
+                dest: Destination::BGP(prefix),
             })
         }
     }
@@ -596,7 +607,7 @@ impl PathConditionCNF {
             Err(PolicyError::PathCondition {
                 path: path.to_owned(),
                 condition: self.clone().into(),
-                prefix,
+                dest: Destination::BGP(prefix),
             })
         }
     }

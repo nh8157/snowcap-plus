@@ -22,6 +22,7 @@ use super::{PolicyError, TransientStateAnalyzer};
 use crate::netsim::{
     config::{ConfigExpr, ConfigModifier},
     ForwardingState, Network, NetworkError, Prefix, RouterId,
+    types::Destination,
 };
 
 use itertools::iproduct;
@@ -210,11 +211,11 @@ impl HardPolicy {
                                 None => Ok(()),
                                 Some(c) => match c.check(&path, *p) {
                                     Ok(()) => Ok(()),
-                                    Err(PolicyError::PathCondition { path, condition, prefix }) => {
+                                    Err(PolicyError::PathCondition { path, condition, dest }) => {
                                         Err(PolicyError::ReliabilityCondition {
                                             path,
                                             condition,
-                                            prefix,
+                                            dest,
                                             link_a: a,
                                             link_b: b,
                                         })
@@ -227,7 +228,7 @@ impl HardPolicy {
                             | Err(NetworkError::ForwardingBlackHole(_)) => {
                                 Err(PolicyError::NotReliable {
                                     router: *r,
-                                    prefix: *p,
+                                    dest: Destination::BGP(*p),
                                     link_a: a,
                                     link_b: b,
                                 })
@@ -270,7 +271,7 @@ impl HardPolicy {
                         Some(Condition::TransientPath(r, p, c)) => {
                             Some(PolicyError::TransientBehavior {
                                 router: *r,
-                                prefix: *p,
+                                dest: Destination::BGP(*p),
                                 condition: c.clone(),
                             })
                         }

@@ -299,6 +299,7 @@ pub use ltl::{HardPolicy, LTLBoolean, LTLModal, LTLOperator, WatchErrors};
 use transient_behavior::TransientStateAnalyzer;
 
 use crate::netsim::{Network, Prefix, RouterId};
+use crate::netsim::types::Destination;
 //use crate::transient_behavior::TransientError;
 
 use std::collections::VecDeque;
@@ -306,55 +307,62 @@ use thiserror::Error;
 
 /// # Hard Policy Error
 /// This indicates which policy resulted in the policy failing.
-#[derive(Debug, Error, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Error, Eq, PartialEq, Clone, Hash)]
 pub enum PolicyError {
     /// Forwarding Black Hole occured
-    #[error("Black Hole at router {router:?} for {prefix:?}")]
+    #[error("Black Hole at router {router:?} for {dest:?}")]
     BlackHole {
         /// The router where the black hole exists.
         router: RouterId,
         /// The prefix for which the black hole exists.
-        prefix: Prefix,
+        dest: Destination,
     },
-
+    /// Access Denied occurs at certain router
+    #[error("Access Denied at router {router1:?} for {router2:?}")]
+    AccessDenied {
+        /// traffic intercepted at this router
+        router1: RouterId,
+        /// traffic sent by this router
+        router2: RouterId
+    },
     /// Forwarding Loop occured
-    #[error("Forwarding Loop {path:?} for {prefix:?}")]
+    #[error("Forwarding Loop {path:?} for {dest:?}")]
     ForwardingLoop {
         /// The loop, only containing the relevant routers.
         path: Vec<RouterId>,
         /// The prefix for which the forwarding loop exists.
-        prefix: Prefix,
+        dest: Destination,
     },
 
     /// PathRequirement was not satisfied
-    #[error("Invalid Path for {prefix:?}: path: {path:?} condition: {condition}")]
+    #[error("Invalid Path for {dest:?}: path: {path:?} condition: {condition}")]
     PathCondition {
         /// The actual path taken in the network
         path: Vec<RouterId>,
         /// The expected path
         condition: PathCondition,
         /// the prefix for which the wrong path exists.
-        prefix: Prefix,
+        dest: Destination,
     },
 
     /// A route is present, where it should be dropped somewhere
-    #[error("Router {router:?} should not be able to reach {prefix:?} but the following path is valid: {path:?}")]
+    #[error("Router {router:?} should not be able to reach {dest:?} but the following path is valid: {path:?}")]
     UnallowedPathExists {
         /// The router who should not be able to reach the prefix
         router: RouterId,
         /// The prefix which should not be reached
-        prefix: Prefix,
+        dest: Destination,
         /// the path with which the router can reach the prefix
         path: Vec<RouterId>,
     },
 
     /// Reliability Constraint is not satisfied
-    #[error("Router {router:?} has no backup path for {prefix:?} when link ({link_a:?} -> {link_b:?}) fails.")]
+    #[error("Router {router:?} has no backup path for {dest:?} when link ({link_a:?} -> {link_b:?}) fails.")]
     NotReliable {
         /// Router for thich the reliability is violated
         router: RouterId,
         /// Prefix for which the reliability is violated
-        prefix: Prefix,
+        dest: Destination,
         /// Critical link, where a link failure causes the unreliability (router a)
         link_a: RouterId,
         /// Critical link, where a link failure causes the unreliability (router b)
@@ -362,14 +370,14 @@ pub enum PolicyError {
     },
 
     /// Condition during reliability check is not satisfied
-    #[error("Backup path for {prefix:?} when link ({link_a:?} -> {link_b:?}) fails is not satisfied: path: {path:?}, codition: {condition}")]
+    #[error("Backup path for {dest:?} when link ({link_a:?} -> {link_b:?}) fails is not satisfied: path: {path:?}, codition: {condition}")]
     ReliabilityCondition {
         /// Router for which the reliability condition is violated
         path: Vec<RouterId>,
         /// Condition which is violated during reliability check, when the given link fails.
         condition: PathCondition,
         /// Prefix for which the reliability condition is violated
-        prefix: Prefix,
+        dest: Destination,
         /// Critical link, where a link failure causes the reliability constraint to fail (router a)
         link_a: RouterId,
         /// Critical link, where a link failure causes the reliability constraint to fail (router b)
@@ -381,12 +389,12 @@ pub enum PolicyError {
     NoConvergence,
 
     /// Transient Behavior Violation
-    #[error("Transient behavior on router {router:?} for {prefix:?} may be violated: {condition}")]
+    #[error("Transient behavior on router {router:?} for {dest:?} may be violated: {condition}")]
     TransientBehavior {
         /// Router for which transient behavior might be violated
         router: RouterId,
         /// Prefix for which the router might violate transient behavior
-        prefix: Prefix,
+        dest: Destination,
         /// Path condition which may be violated in transient behavior
         condition: PathCondition,
     },
@@ -396,63 +404,145 @@ impl PolicyError {
     /// Get a string representing the policy error, where all router names are inserted.
     pub fn repr_with_name(&self, net: &Network) -> String {
         match self {
-            PolicyError::BlackHole { router, prefix } => format!(
-                "Black hole for prefix {} at router {}",
-                prefix.0,
-                net.get_router_name(*router).unwrap(),
+            PolicyError::BlackHole { router, dest} => match dest {
+                    Destination::BGP(p) => {
+                        format!(
+                            "Black hole for prefix {} at router {}",
+                            p.0,
+                            net.get_router_name(*router).unwrap(),
+                        )
+                    },
+                    Destination::IGP(r) => {
+                        format!(
+                            "Black hole for prefix {} at router {}",
+                            net.get_router_name(*r).unwrap(),
+                            net.get_router_name(*router).unwrap(),
+                        )
+                    },
+            },
+            PolicyError::AccessDenied { router1, router2 } => format!(
+                "Access Denied at router {} for router {}",
+                net.get_router_name(*router1).unwrap(),
+                net.get_router_name(*router2).unwrap(),
             ),
-            PolicyError::ForwardingLoop { path, prefix } => format!(
-                "Forwarding loop for prefix {}: {} -> {}",
-                prefix.0,
-                path.iter()
-                    .map(|r| net.get_router_name(*r).unwrap())
-                    .collect::<Vec<&str>>()
-                    .join(" -> "),
-                net.get_router_name(*path.first().unwrap()).unwrap(),
-            ),
-            PolicyError::PathCondition { path, condition, prefix } => format!(
-                "Path condition invalidated for prefix {}: path: {}, condition: {}",
-                prefix.0,
-                path.iter()
-                    .map(|r| net.get_router_name(*r).unwrap())
-                    .collect::<Vec<&str>>()
-                    .join(" -> "),
-                condition.repr_with_name(net)
-            ),
-            PolicyError::UnallowedPathExists { router, prefix, path } => format!(
-                "Router {} can reach unallowed prefix {} via path [{}]",
-                net.get_router_name(*router).unwrap(),
-                prefix.0,
-                path.iter()
-                    .map(|r| net.get_router_name(*r).unwrap())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PolicyError::NotReliable { router, prefix, link_a, link_b} => format!(
-                "Router {} cannot reach prefix {} when link [{} -> {}] fails",
-                net.get_router_name(*router).unwrap(),
-                prefix.0,
-                net.get_router_name(*link_a).unwrap(),
-                net.get_router_name(*link_b).unwrap(),
-            ),
-            PolicyError::ReliabilityCondition { path, condition, prefix, link_a, link_b} => format!(
-                "Reliability condition {} violated for prefix {} with path {} when link [{} -> {}] fails",
-                condition.repr_with_name(net),
-                prefix.0,
-                path.iter()
-                    .map(|r| net.get_router_name(*r).unwrap())
-                    .collect::<Vec<&str>>()
-                    .join(" -> "),
-                net.get_router_name(*link_a).unwrap(),
-                net.get_router_name(*link_b).unwrap(),
-            ),
+            PolicyError::ForwardingLoop { path, dest } => 
+            {
+                match dest {
+                    Destination::BGP(p) => format!(
+                        "Forwarding loop for prefix {}: {} -> {}",
+                        p.0,
+                        path.iter()
+                            .map(|r| net.get_router_name(*r).unwrap())
+                            .collect::<Vec<&str>>()
+                            .join(" -> "),
+                        net.get_router_name(*path.first().unwrap()).unwrap(),
+                    ),
+                    Destination::IGP(r) => format!(
+                        "Forwarding loop for router {}: {} -> {}",
+                        net.get_router_name(*r).unwrap(),
+                        path.iter()
+                            .map(|r| net.get_router_name(*r).unwrap())
+                            .collect::<Vec<&str>>()
+                            .join(" -> "), 
+                        net.get_router_name(*path.first().unwrap()).unwrap(), 
+                    ),
+                }
+            },
+            PolicyError::PathCondition { path, condition, dest} => match dest {
+                Destination::BGP(p) => format!(
+                    "Path condition invalidated for prefix {}: path: {}, condition: {}",
+                    p.0,
+                    path.iter()
+                        .map(|r| net.get_router_name(*r).unwrap())
+                        .collect::<Vec<&str>>()
+                        .join(" -> "),
+                    condition.repr_with_name(net),
+                ),
+                Destination::IGP(r) => format!(
+                   "Path condition invalidated for router {}: path: {}, condition: {}",
+                    net.get_router_name(*r).unwrap(),
+                    path.iter()
+                        .map(|r| net.get_router_name(*r).unwrap())
+                        .collect::<Vec<&str>>()
+                        .join(" -> "),
+                    condition.repr_with_name(net),
+                ),
+            }
+            PolicyError::UnallowedPathExists { router, dest, path } => match dest {
+                Destination::BGP(p) => format!(
+                    "Router {} can reach unallowed prefix {} via path [{}]",
+                    net.get_router_name(*router).unwrap(),
+                    p.0,
+                    path.iter()
+                        .map(|r| net.get_router_name(*r).unwrap())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Destination::IGP(r) => format!(
+                    "Router {} can reach unallowed router {} via path [{}]",
+                    net.get_router_name(*router).unwrap(),
+                    net.get_router_name(*r).unwrap(),
+                    path.iter()
+                        .map(|r| net.get_router_name(*r).unwrap())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            },
+            PolicyError::NotReliable { router, dest, link_a, link_b} => match dest {
+                Destination::BGP(p) => format!(
+                    "Router {} cannot reach prefix {} when link [{} -> {}] fails",
+                    net.get_router_name(*router).unwrap(),
+                    p.0,
+                    net.get_router_name(*link_a).unwrap(),
+                    net.get_router_name(*link_b).unwrap(),
+                ),
+                Destination::IGP(r) => format!(
+                    "Router {} cannot reach prefix {} when link [{} -> {}] fails",
+                    net.get_router_name(*router).unwrap(),
+                    net.get_router_name(*r).unwrap(),
+                    net.get_router_name(*link_a).unwrap(),
+                    net.get_router_name(*link_b).unwrap(),
+                ),
+            },
+            PolicyError::ReliabilityCondition { path, condition, dest, link_a, link_b} => match dest {
+                Destination::BGP(p) => format!(
+                        "Reliability condition {} violated for prefix {} with path {} when link [{} -> {}] fails",
+                        condition.repr_with_name(net),
+                        p.0,
+                        path.iter()
+                            .map(|r| net.get_router_name(*r).unwrap())
+                            .collect::<Vec<&str>>()
+                            .join(" -> "),
+                        net.get_router_name(*link_a).unwrap(),
+                        net.get_router_name(*link_b).unwrap(),
+                ),
+                Destination::IGP(r) => format!(
+                    "Reliability condition {} violated for router {} with path {} when link [{} -> {}] fails",
+                    condition.repr_with_name(net),
+                    net.get_router_name(*r).unwrap(),
+                    path.iter()
+                        .map(|r| net.get_router_name(*r).unwrap())
+                        .collect::<Vec<&str>>()
+                        .join(" -> "),
+                    net.get_router_name(*link_a).unwrap(),
+                    net.get_router_name(*link_b).unwrap(),
+                ),
+            },
             PolicyError::NoConvergence => String::from("No Convergence"),
-            PolicyError::TransientBehavior {router, prefix, condition} => format!(
-                "Transient behavior of router {} for prefix {} may be violated! condition: {}",
-                net.get_router_name(*router).unwrap(),
-                prefix.0,
-                condition.repr_with_name(net),
-            )
+            PolicyError::TransientBehavior {router, dest, condition} => match dest {
+                Destination::BGP(p) => format!(
+                    "Transient behavior of router {} for prefix {} may be violated! condition: {}",
+                    net.get_router_name(*router).unwrap(),
+                    p.0,
+                    condition.repr_with_name(net),
+                ),
+                Destination::IGP(r) => format!(
+                    "Transient behavior of router {} for router {} may be violated! condition: {}",
+                    net.get_router_name(*router).unwrap(),
+                    net.get_router_name(*r).unwrap(),
+                    condition.repr_with_name(net),
+                )
+            }
         }
     }
 }
