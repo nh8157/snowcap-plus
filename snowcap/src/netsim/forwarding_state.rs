@@ -144,7 +144,8 @@ impl ForwardingState {
         let num_prefixes = prefixes.len();
 
         // initialize another table for igp here
-        let routers = net.get_routers();
+        let routers = net.get_routers().clone();
+
 
         // initialize state
         // need to account for igp as well
@@ -154,7 +155,7 @@ impl ForwardingState {
             if let NetworkDevice::InternalRouter(r) = net.get_device(rid.into()) {
                 for (p, pid) in prefixes.iter() {
                     let idx: usize = get_idx_new(
-                        r.router_id(),
+                        rid as usize,
                         &Destination::BGP(*p),
                         &prefixes,
                         &routers
@@ -163,7 +164,7 @@ impl ForwardingState {
                 }
                 for r_other in &routers {
                     let idx: usize = get_idx_new(
-                        r.router_id(),
+                        rid as usize,
                         &Destination::IGP(*r_other),
                         &prefixes,
                         &routers
@@ -185,7 +186,7 @@ impl ForwardingState {
         for r in external_routers.iter() {
             for p in net.get_device(*r).unwrap_external().advertised_prefixes() {
                 let idx: usize = get_idx_new(
-                    *r,
+                    r.index(),
                     &Destination::BGP(p),
                     &prefixes,
                     &routers
@@ -208,7 +209,6 @@ impl ForwardingState {
         }
         // prepare the cache
         let cache = repeat(None).take((num_prefixes + num_devices) * num_devices).collect();
-
         Self { num_prefixes, num_devices, state, acl, prefixes, routers, external_routers, cache }
     }
 
@@ -316,7 +316,7 @@ impl ForwardingState {
     }
 
     /// New get_route function that supports IGP
-    fn get_route_new(
+    pub fn get_route_new(
         &mut self,
         src: RouterId,
         dest: Destination,
@@ -347,12 +347,11 @@ impl ForwardingState {
             }
         }
         let (result, mut update_cache_upto) = loop {
-            current_idx = get_idx_new(current_node, &dest, &self.prefixes, &self.routers);
+            current_idx = get_idx_new(current_node.index(), &dest, &self.prefixes, &self.routers);
             
             // check if the route already exists in cache
             if let Some((mut r, c)) = self.get_cache(current_node, &dest) {
-                println!("Using cache");
-                // test if access is accepted along the path
+            // test if access is accepted along the path
                 for router in c {
                     path.push(router);
                     if !self.check_access(src, router) {
@@ -393,7 +392,7 @@ impl ForwardingState {
         match result {
             CacheResult::AccessDenied => {
                 // only update the src
-                self.cache[get_idx_new(src, &dest, &self.prefixes, &self.routers)] =
+                self.cache[get_idx_new(src.index(), &dest, &self.prefixes, &self.routers)] =
                     Some((result, path.clone()));
             }
             _ => {
@@ -406,7 +405,7 @@ impl ForwardingState {
                     for (update_id, router) in
                         path.iter().enumerate().take(update_cache_upto - 1).skip(loop_pos)
                     {
-                        self.cache[get_idx_new(*router, &dest, &self.prefixes, &self.routers)] =
+                        self.cache[get_idx_new(router.index(), &dest, &self.prefixes, &self.routers)] =
                             Some((result, tmp_loop_path.clone()));
                         if update_id < update_cache_upto - 1 {
                             tmp_loop_path.remove(0);
@@ -418,14 +417,17 @@ impl ForwardingState {
         
                 // insert the newest path into cache
                 for idx in 0..update_cache_upto {
-                    self.cache[get_idx_new(path[idx], &dest, &self.prefixes, &self.routers)] = 
+                    self.cache[get_idx_new(path[idx].index(), &dest, &self.prefixes, &self.routers)] = 
                         Some((result, path.iter().skip(idx).cloned().collect()));
                 }
             }
         }
 
         match result {
-            CacheResult::ValidPath => Ok(path),
+            CacheResult::ValidPath => {
+                println!("{:?}", path);
+                Ok(path)
+            },
             CacheResult::BlackHole => Err(NetworkError::ForwardingBlackHole(path)),
             CacheResult::ForwardingLoop => Err(NetworkError::ForwardingLoop(path)),
             CacheResult::AccessDenied => Err(NetworkError::AccessDenied(*path.last().unwrap())),
@@ -452,12 +454,15 @@ impl ForwardingState {
     }
 
     fn get_cache(&self, src: RouterId, dest: &Destination) -> Option<(CacheResult, Vec<RouterId>)>{
-        let idx = get_idx_new(src, &dest, &self.prefixes, &self.routers);
+        let idx = get_idx_new(src.index(), &dest, &self.prefixes, &self.routers);
         self.cache[idx].clone()
     }
 
     fn check_access(&self, src: RouterId, dest: RouterId) -> bool {
-        let idx = self.routers.iter().position(|rid| *rid == dest).unwrap();
+        if self.acl.len() == 0 {
+            return true;
+        }
+        let idx = dest.index();
         if let Some((mode, acl)) = &self.acl[idx] {
             // println!("Checking ACL on {:?}", current_node);
             // println!("ACL: {:?}", acl);
@@ -492,8 +497,9 @@ fn get_idx(rid: usize, pid: usize, num_prefixes: usize) -> usize {
 }
 
 /// For indexing within self.state
-fn get_idx_new(src: RouterId, dest: &Destination, prefixes: &HashMap<Prefix, usize>, routers: &Vec<RouterId>) -> usize {
-    let rid = routers.iter().position(|rid| *rid == src).unwrap();
+fn get_idx_new(rid: usize, dest: &Destination, prefixes: &HashMap<Prefix, usize>, routers: &Vec<RouterId>) -> usize {
+    // println!("Checking for {:?}", src);
+    // let rid = routers.iter().position(|rid| *rid == src).unwrap();
     match dest {
         Destination::BGP(prefix) => {
             let pid = prefixes

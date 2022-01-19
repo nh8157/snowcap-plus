@@ -545,7 +545,7 @@ impl Network {
     /// Compute and return the current forwarding state.
     pub fn get_forwarding_state(&self) -> ForwardingState {
         // faster access of the forwarding table
-        ForwardingState::from_net(self)
+        ForwardingState::from_net_new(self)
     }
 
     /// Return forwarding state containing IGP comm
@@ -836,6 +836,9 @@ impl Network {
         // checks if the config can be applied 
         // if so, appended to the config struct of the network
         self.config.apply_modifier(modifier)?;
+        if undo {
+            println!("Undoing modifier {:?}", modifier);
+        }
         
         // If the modifier can be applied, then everything is ok and we can do the actual change.
         match modifier {

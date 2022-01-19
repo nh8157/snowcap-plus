@@ -22,6 +22,7 @@
 
 use super::{prepare_loop_path, PolicyError};
 use crate::netsim::{ForwardingState, Network, NetworkError, Prefix, RouterId};
+use crate::netsim::types::Destination;
 
 use itertools::iproduct;
 use std::fmt;
@@ -135,7 +136,7 @@ impl Condition {
             // test between every pair of nodes
             Self::Reachable(r, p, c) => {
                 let get_route_start = Instant::now();
-                let r_result = fw_state.get_route(*r, *p);
+                let r_result = fw_state.get_route_new(*r, Destination::BGP(*p));
                 let get_route_end = get_route_start.elapsed();
                 match r_result {
                     // for every pair of routers in the network
@@ -161,18 +162,30 @@ impl Condition {
                 // !!! What if instead of checking every invariance
                 // !!! we identify invariances that might be violated
                 // !!! and check those? Possibly reduce complexity
-
-                Ok(())
+                let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
+                match r_result {
+                    Ok(path) => match c {
+                        // no path condition
+                        None => Ok(()),
+                        // path condition exists
+                        Some(cond) => Ok(())
+                    },
+                    _ => {
+                        Ok(())
+                    }
+                }
             }
-            Self::NotReachable(r, p) => match fw_state.get_route(*r, *p) {
+            Self::NotReachable(r, p) => match fw_state.get_route_new(*r, Destination::BGP(*p)) {
                 // no path available then return ok
                 Err(NetworkError::ForwardingBlackHole(_)) => Ok(()),
                 Err(NetworkError::ForwardingLoop(_)) => Ok(()),
+                Err(NetworkError::AccessDenied(_)) => Ok(()),
                 Err(e) => panic!("Unrecoverable error detected: {}", e),
                 Ok(path) => Err(PolicyError::UnallowedPathExists { router: *r, prefix: *p, path }),
             },
             Self::NotReachableIGP(r1, r2) => {
                 // TODO
+                let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
                 Ok(())
             }
             Self::Reliable(_, _, _) => Ok(()),

@@ -194,7 +194,9 @@ impl Strategy for StrategyTRTA {
     ) -> Result<Box<Self>, Error> {
         // clear the undo stack
         net.clear_undo_stack();
-
+        for i in &modifiers {
+            println!("{:?}", i);
+        }
         // check the state
         hard_policy.set_num_mods_if_none(modifiers.len());
         let mut fw_state = net.get_forwarding_state();
