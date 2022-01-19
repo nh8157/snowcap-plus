@@ -100,7 +100,7 @@ pub mod external_router;
 pub(crate) mod forwarding_state;
 pub mod route_map;
 pub mod router;
-pub(crate) mod types;
+pub mod types;
 
 pub(crate) use event::{Event, EventQueue};
 

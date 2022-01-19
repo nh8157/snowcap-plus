@@ -42,13 +42,19 @@ pub type LinkWeight = f32;
 /// IGP Network graph
 pub type IgpNetwork = StableGraph<(), LinkWeight, Directed, IndexType>;
 #[derive(Debug, Clone)]
+/// Define ACL behavior here
 pub enum ACL {
+    /// Traffic is accepted
     Accept,
+    /// Traffic is denied
     Deny,
 }
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
+/// Define destination here
 pub enum Destination {
+    /// Destination is BGP
     BGP(Prefix),
+    /// Destination is IGP
     IGP(RouterId),
 }
 

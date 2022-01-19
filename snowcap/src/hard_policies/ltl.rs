@@ -60,8 +60,9 @@ impl HardPolicy {
         R1: Iterator<Item = &'r1 RouterId> + Clone,
         R2: Iterator<Item = &'r2 RouterId> + Clone,
     {
-        let prop_vars: Vec<Condition> = 
-            iproduct!(routers1, routers2).map(|(r1, r2)| Condition::ReachableIGP(*r1, *r2, None)).collect();
+        let prop_vars: Vec<Condition> = iproduct!(routers1, routers2)
+            .map(|(r1, r2)| Condition::ReachableIGP(*r1, *r2, None))
+            .collect();
         Self::globally(prop_vars)
     }
 

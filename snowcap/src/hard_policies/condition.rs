@@ -162,6 +162,7 @@ impl Condition {
                 // !!! What if instead of checking every invariance
                 // !!! we identify invariances that might be violated
                 // !!! and check those? Possibly reduce complexity
+                println!("Checking IGP reachability {:?} {:?}", r1, r2);
                 let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
                 match r_result {
                     Ok(path) => match c {
@@ -194,6 +195,7 @@ impl Condition {
             },
             Self::NotReachableIGP(r1, r2) => {
                 // TODO
+                println!("Checking isolation {:?} {:?}", r1, r2);
                 let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
                 match r_result {
                     Err(NetworkError::ForwardingBlackHole(_)) => Ok(()),

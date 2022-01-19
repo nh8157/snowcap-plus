@@ -203,8 +203,8 @@ impl ForwardingState {
             let router = net.get_device(rid.into());
             if let NetworkDevice::InternalRouter(r) = router {
                 let (mode, acl_router) = r.get_acl().unwrap();
-                let idx = routers.iter().position(|rid| *rid == r.router_id()).unwrap();
-                acl[idx] = Some((mode, acl_router));
+                // let idx = routers.iter().position(|rid| *rid == r.router_id()).unwrap();
+                acl[rid as usize] = Some((mode, acl_router));
             }
         }
         // prepare the cache
@@ -324,7 +324,6 @@ impl ForwardingState {
         if src.index() >= self.num_devices {
             return Err(NetworkError::DeviceNotFound(src));
         }
-        
         let mut current_node = src;
         let mut current_idx: usize;
         let mut visited_routers: HashSet<RouterId> = HashSet::new();
@@ -388,7 +387,7 @@ impl ForwardingState {
                 None => break (CacheResult::BlackHole, path.len()),
             }   
         };
-
+        println!("{:?}", path);
         match result {
             CacheResult::AccessDenied => {
                 // only update the src
