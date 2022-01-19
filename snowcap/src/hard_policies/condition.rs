@@ -168,6 +168,7 @@ impl Condition {
                         // no path condition
                         None => Ok(()),
                         // path condition exists
+                        // not yet implemented
                         Some(cond) => Ok(())
                     },
                     // Err(NetworkError::ForwardingLoop(path)) => {
@@ -179,7 +180,7 @@ impl Condition {
                     Err(NetworkError::AccessDenied(router)) => {
                         Err(PolicyError::AccessDenied {router1: *r1, router2: router})
                     }
-                    // Need to implement other types of policy error for igp
+                    // not yet implemented other types of errors
                     Err(e) => panic!("Unrecoverable error detected: {}", e),
                 }
             }
@@ -194,11 +195,14 @@ impl Condition {
             Self::NotReachableIGP(r1, r2) => {
                 // TODO
                 let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
-                // match r_result {
-                //     // Ok(path) => Err(PolicyError::UnallowedPathExists )
-                // }
-                Ok(())
-            }
+                match r_result {
+                    Err(NetworkError::ForwardingBlackHole(_)) => Ok(()),
+                    Err(NetworkError::ForwardingLoop(_)) => Ok(()),
+                    Err(NetworkError::AccessDenied(_)) => Ok(()),
+                    Err(e) => panic!("Unrecoverable error detected: {}", e),
+                    Ok(path) => Err(PolicyError::UnallowedPathExists {router: *r1, dest: Destination::IGP(*r2), path}),
+                }
+             }
             Self::Reliable(_, _, _) => Ok(()),
             Self::TransientPath(_, _, _) => Ok(()),
         }
