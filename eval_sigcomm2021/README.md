@@ -250,7 +250,7 @@ To run the case-study, execute the following (still in the project root):
 mkdir eval_sigcomm2021/result_11
 gns3server > /dev/null 2>&1 &
 sleep 5
-RUST_LOG=info ./target/release/snowcap_main run -r -s 3 -a --json eval_sigcomm2021/result_11/random.json topology-zoo eval_sigcomm2021/topology_zoo/HiberniaIreland.gml FM2RR -s 10
+RUST_LOG=info ./target/debug/snowcap_main run -r -s 3 -a --json eval_sigcomm2021/result_11/random.json topology-zoo eval_sigcomm2021/topology_zoo/HiberniaIreland.gml FM2RR -s 10
 RUST_LOG=info ./target/release/snowcap_main run --json eval_sigcomm2021/result_11/snowcap.json topology-zoo eval_sigcomm2021/topology_zoo/HiberniaIreland.gml FM2RR -s 10
 ```
 
