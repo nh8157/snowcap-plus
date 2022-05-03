@@ -246,18 +246,18 @@ impl Strategy for StrategyTRTA {
         let mut net = self.net.clone();
         let mut hard_policy = self.hard_policy.clone();
         
-        println!("########## Invariances ##########");
+        info!("########## Invariances ##########");
         for i in hard_policy.prop_vars.iter() {
-            println!("{}", i);
+            info!("{}", i);
         }
-        println!("#################################");
+        info!("#################################");
 
         let mut epoch: i32 = 0;
 
         loop {
-            println!("################################################");
-            println!("################ EPOCH {} STARTS ################", epoch);
-            println!("################################################");
+            info!("################################################");
+            info!("################ EPOCH {} STARTS ################", epoch);
+            info!("################################################");
             // check for iter overflow
             if self.stop_time.as_ref().map(|time| time.elapsed().is_ok()).unwrap_or(false) {
                 // time budget is used up!
@@ -295,25 +295,25 @@ impl Strategy for StrategyTRTA {
                 Ok(next_idx) => {
                     // update the current stack frame and prepare the next one
                     // at this level, all the previous configurations don't work with the former ones
-                    println!("{:?} to find a valid option", get_option_end);
+                    info!("{:?} to find a valid option", get_option_end);
                     frame.idx = next_idx + 1;
                     // There exists a valid next step! Update the current sequence and the stack
 
                     // this index extracted from the vectors
                     let next_group_idx = frame.rem_groups[next_idx];
                     current_sequence.push(next_group_idx);
-                    println!("{:?}", current_sequence);
+                    // println!("{:?}", current_sequence);
                     // check if all groups have been added to the sequence
                     if current_sequence.len() == self.groups.len() {
                         // We are done! found a valid solution!
                         let work_end: Duration = work_start.elapsed();
 
-                        println!("\n################################################");
-                        println!("################### SUMMARY ####################");
-                        println!("################################################");
-                        println!("Total duration: {:?}", work_end);
-                        println!("Spent {:?} to explore {} options", opt_duration, opt_ctr);
-                        println!("Spent {:?} to identify {} dependencies", dep_duration, dep_ctr);
+                        info!("\n################################################");
+                        info!("################### SUMMARY ####################");
+                        info!("################################################");
+                        info!("Total duration: {:?}", work_end);
+                        info!("Spent {:?} to explore {} options", opt_duration, opt_ctr);
+                        info!("Spent {:?} to identify {} dependencies", dep_duration, dep_ctr);
                         info!(
                             "Valid solution was found! Learned {} groups",
                             self.groups.iter().filter(|g| g.len() > 1).count()
@@ -351,7 +351,7 @@ impl Strategy for StrategyTRTA {
                         abort.clone(),
                     );
                     find_dependency_end = Some(dependency_start.elapsed());
-                    println!("{:?} to find a dependency", find_dependency_end.unwrap());
+                    info!("{:?} to find a dependency", find_dependency_end.unwrap());
 
                     match dep_result {
                         Some((new_group, old_groups)) => {
@@ -410,7 +410,6 @@ impl Strategy for StrategyTRTA {
                     hard_policy = self.hard_policy.clone();
                 }
             }
-            println!();
             epoch += 1;
         }
     }

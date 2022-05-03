@@ -23,6 +23,7 @@ pub(crate) mod optimizer;
 pub(crate) mod optimizer_trta;
 pub(crate) mod strategy;
 pub(crate) mod strategy_trta;
+pub(crate) mod strategy_parallel;
 mod utils;
 
 const TIME_FRACTION: u32 = 30;
