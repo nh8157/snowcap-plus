@@ -52,6 +52,9 @@ pub enum Error {
     /// Topology Zoo Error
     #[error("Topology Zoo Error: {0}")]
     ZooTopologyError(#[from] ZooTopologyError),
+    /// The functionality is not yet implemented
+    #[error("Functionality not yet implemented")]
+    NotImplemented
 }
 
 impl From<ConfigError> for Error {

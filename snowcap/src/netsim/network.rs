@@ -627,6 +627,17 @@ impl Network {
         self.links.iter()
     }
 
+    /// Returns whether two routers have a link
+    pub fn has_link(&self, n1: RouterId, n2: RouterId) -> bool {
+        let mut links = self.links_symmetric();
+        if let None = &links.find(|&&x| (x == (n1, n2) || x == (n2, n1))) {
+            false
+        } else {
+            true
+        }
+
+    }
+
     /// Configure the topology to pause the queue and return after a certain number of queue have
     /// been executed. The job queue will remain active. If set to None, the queue will continue
     /// running until converged.

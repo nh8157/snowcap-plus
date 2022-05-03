@@ -162,21 +162,21 @@ impl ForwardingState {
                     );
                     state[idx] = r.get_next_hop(Destination::BGP(*p));
                 }
-                for r_other in &routers {
-                    let idx: usize = get_idx_new(
-                        rid as usize,
-                        &Destination::IGP(*r_other),
-                        &prefixes,
-                        &routers
-                    );
-                    if *r_other != r.router_id() {
-                        // when self is not the destination
-                        state[idx] = r.get_next_hop(Destination::IGP(*r_other));
-                    } else {
-                        // when self is the destination
-                        state[idx] = Some(*r_other);
-                    }
-                }
+                // for r_other in &routers {
+                //     let idx: usize = get_idx_new(
+                //         rid as usize,
+                //         &Destination::IGP(*r_other),
+                //         &prefixes,
+                //         &routers
+                //     );
+                //     if *r_other != r.router_id() {
+                //         // when self is not the destination
+                //         state[idx] = r.get_next_hop(Destination::IGP(*r_other));
+                //     } else {
+                //         // when self is the destination
+                //         state[idx] = Some(*r_other);
+                //     }
+                // }
             }
         }
 

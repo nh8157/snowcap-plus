@@ -151,6 +151,7 @@ use crate::hard_policies::HardPolicy;
 use crate::netsim::config::{Config, ConfigModifier};
 use crate::netsim::Network;
 use crate::{Error, Stopper};
+use crate::dep_groups::strategy_parallel::{DAG, DAGNode};
 
 use std::time::Duration;
 
@@ -203,6 +204,48 @@ pub trait Strategy {
     /// *This method is only available if the `"count-states"` feature is enabled!*
     #[cfg(feature = "count-states")]
     fn num_states(&self) -> usize;
+}
+
+/// Interface for strategies that can be applied in parallel
+pub trait StrategyDAG {
+    /// Called when trying to synthesize the configurations
+    fn synthesize(
+        net: Network,
+        end_config: Config,
+        hard_policy: HardPolicy,
+        time_budget: Option<Duration>,
+        abort: Stopper,
+    ) -> Result<DAG, Error> {
+        let start_config = net.current_config().clone();
+        let patch = start_config.get_diff(&end_config);
+        let modifiers: Vec<ConfigModifier> = patch.modifiers;
+        let mut strategy = match Self::new(net, modifiers, hard_policy, time_budget) {
+            Ok(s) => {
+                info!("Initial configuration is valid!");
+                s
+            }
+            Err(Error::InvalidInitialState) => {
+                error!("Invalid initial state");
+                return Err(Error::InvalidInitialState);
+            }
+            Err(e) => {
+                error!("Unexpected error while setting up the strategy: {}", e);
+                return Err(e);
+            }
+        };
+        strategy.work(abort) 
+    }
+
+    /// Create a new strategy object
+    fn new(
+        net: Network,
+        modifiers: Vec<ConfigModifier>,
+        hard_policy: HardPolicy,
+        time_budget: Option<Duration>,
+    ) -> Result<Box<Self>, Error>;
+
+    /// Producing an order of configurations encapsulated in a DAG object
+    fn work(&mut self, abort: Stopper) -> Result<DAG, Error>;
 }
 
 /// Trait for a strategy being able to solve groups of modifiers

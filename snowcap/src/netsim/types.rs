@@ -31,6 +31,8 @@ use thiserror::Error;
 type IndexType = u32;
 /// Router Identification (and index into the graph)
 pub type RouterId = NodeIndex<IndexType>;
+/// Defined type of zones, two routers specified here are boundary routers
+pub type Zone = (RouterId, RouterId);
 /// IP Prefix (simple representation)
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
 pub struct Prefix(pub u32);
