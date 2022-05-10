@@ -24,6 +24,7 @@ maplit = "1.0.2"
 itertools = "0.9"
 num_cpus = "1"
 libc = "0.2"
+daggy = "*"
 
 [dev-dependencies]
 assert_approx_eq = "1.1.0"

@@ -152,6 +152,7 @@ use crate::netsim::config::{Config, ConfigModifier};
 use crate::netsim::Network;
 use crate::{Error, Stopper};
 use crate::dep_groups::strategy_parallel::{DAG, DAGNode};
+use daggy::Dag;
 
 use std::time::Duration;
 
@@ -215,7 +216,7 @@ pub trait StrategyDAG {
         hard_policy: HardPolicy,
         time_budget: Option<Duration>,
         abort: Stopper,
-    ) -> Result<DAG, Error> {
+    ) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         let start_config = net.current_config().clone();
         let patch = start_config.get_diff(&end_config);
         let modifiers: Vec<ConfigModifier> = patch.modifiers;
@@ -245,7 +246,7 @@ pub trait StrategyDAG {
     ) -> Result<Box<Self>, Error>;
 
     /// Producing an order of configurations encapsulated in a DAG object
-    fn work(&mut self, abort: Stopper) -> Result<DAG, Error>;
+    fn work(&mut self, abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error>;
 }
 
 /// Trait for a strategy being able to solve groups of modifiers

@@ -89,6 +89,7 @@ impl ExampleNetwork for SimpleNet {
     ///   - r1 --- r4 (iBGP Peer)
     ///   - r2 --- r4 (iBGP Peer)
     ///   - r3 --- r4 (iBGP Peer)
+    
     fn initial_config(net: &Network, variant: usize) -> Config {
         let mut c = Config::new();
 
@@ -98,6 +99,27 @@ impl ExampleNetwork for SimpleNet {
         let r4 = net.get_router_id("r4").unwrap();
         let e1 = net.get_router_id("e1").unwrap();
         let e4 = net.get_router_id("e4").unwrap();
+
+        c.add(StaticRoute {
+            router: r1,
+            prefix: Prefix(0),
+            target: e1,
+        }).unwrap();
+        c.add(StaticRoute {
+            router: r2,
+            prefix: Prefix(0),
+            target: r1
+        }).unwrap();
+        c.add(StaticRoute { 
+            router: r3, 
+            prefix: Prefix(0), 
+            target: r1 
+        }).unwrap();
+        c.add(StaticRoute {
+            router: r4,
+            prefix: Prefix(0),
+            target: r2
+        }).unwrap();
 
         c.add(IgpLinkWeight { source: r1, target: r2, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { source: r1, target: r3, weight: 1.0 }).unwrap();
@@ -153,6 +175,27 @@ impl ExampleNetwork for SimpleNet {
         let e1 = net.get_router_id("e1").unwrap();
         let e4 = net.get_router_id("e4").unwrap();
 
+        c.add(StaticRoute {
+            router: r1,
+            prefix: Prefix(0),
+            target: e1,
+        }).unwrap();
+        c.add(StaticRoute {
+            router: r2,
+            prefix: Prefix(0),
+            target: r3
+        }).unwrap();
+        c.add(StaticRoute { 
+            router: r3, 
+            prefix: Prefix(0), 
+            target: r1 
+        }).unwrap();
+        c.add(StaticRoute {
+            router: r4,
+            prefix: Prefix(0),
+            target: r3
+        }).unwrap();
+
         c.add(IgpLinkWeight { source: r1, target: r2, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { source: r1, target: r3, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { source: r2, target: r3, weight: 1.0 }).unwrap();
@@ -168,12 +211,20 @@ impl ExampleNetwork for SimpleNet {
         c.add(IgpLinkWeight { target: r1, source: e1, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { target: r4, source: e4, weight: 1.0 }).unwrap();
 
-        c.add(BgpSession { source: r4, target: e4, session_type: EBgp }).unwrap();
-        c.add(BgpSession { source: r4, target: r1, session_type: IBgpPeer }).unwrap();
-        c.add(BgpSession { source: r4, target: r2, session_type: IBgpPeer }).unwrap();
-        c.add(BgpSession { source: r4, target: r3, session_type: IBgpPeer }).unwrap();
+        c.add(BgpSession { source: r1, target: e1, session_type: EBgp }).unwrap();
+        c.add(BgpSession { source: r1, target: r2, session_type: IBgpPeer }).unwrap();
+        c.add(BgpSession { source: r1, target: r3, session_type: IBgpPeer }).unwrap();
 
-        if variant != 0 {
+        if variant == 0 {
+            c.add(BgpSession { source: r4, target: e4, session_type: EBgp }).unwrap();
+        } else if variant == 1 {
+            c.add(BgpSession { source: r1, target: r4, session_type: IBgpPeer }).unwrap();
+        } else if variant == 2 {
+            c.add(BgpSession { source: r1, target: r4, session_type: IBgpPeer }).unwrap();
+            c.add(BgpSession { source: r2, target: r4, session_type: IBgpPeer }).unwrap();
+            c.add(BgpSession { source: r3, target: r4, session_type: IBgpPeer }).unwrap();
+            c.add(BgpSession { source: r4, target: e4, session_type: EBgp }).unwrap();
+        } else {
             panic!("Invalid variant number");
         }
 

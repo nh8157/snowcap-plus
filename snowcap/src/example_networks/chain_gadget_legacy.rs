@@ -119,21 +119,18 @@ where
         // add all the other link weights
         let mut current_r = net.get_router_id(String::from("r00")).unwrap();
         let mut last_r = b0;
-        c.add(StaticRoute {router: current_r, prefix: Prefix(0), target: last_r}).unwrap();
         c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
 
         for i in 1..R::get_count() {
             last_r = current_r;
             current_r = net.get_router_id(&format!("r{:02}", i)).unwrap();
-            c.add(StaticRoute {router: current_r, prefix: Prefix(0), target: last_r}).unwrap();
             c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
             c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
         }
 
         last_r = current_r;
         current_r = b1;
-        c.add(StaticRoute {router: current_r, prefix: Prefix(0), target: last_r}).unwrap();
         c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
 
@@ -178,21 +175,18 @@ where
         // add all the other link weights
         let mut current_r = net.get_router_id(String::from("r00")).unwrap();
         let mut last_r = b0;
-        c.add(StaticRoute {router: last_r, prefix: Prefix(0), target: current_r}).unwrap();
         c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
 
         for i in 1..R::get_count() {
             last_r = current_r;
             current_r = net.get_router_id(&format!("r{:02}", i)).unwrap();
-            c.add(StaticRoute {router: last_r, prefix: Prefix(0), target: current_r}).unwrap(); 
             c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
             c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
         }
 
         last_r = current_r;
         current_r = b1;
-        c.add(StaticRoute {router: last_r, prefix: Prefix(0), target: current_r}).unwrap(); 
         c.add(IgpLinkWeight { source: current_r, target: last_r, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { target: current_r, source: last_r, weight: 1.0 }).unwrap();
 
@@ -200,6 +194,7 @@ where
         for i in 0..R::get_count() {
             let r = net.get_router_id(&format!("r{:02}", i)).unwrap();
             c.add(BgpSession { source: r, target: b0, session_type: IBgpPeer }).unwrap();
+            c.add(BgpSession { source: r, target: b1, session_type: IBgpPeer }).unwrap();
         }
 
         c

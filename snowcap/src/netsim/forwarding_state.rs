@@ -387,7 +387,6 @@ impl ForwardingState {
                 None => break (CacheResult::BlackHole, path.len()),
             }   
         };
-        println!("{:?}", path);
         match result {
             CacheResult::AccessDenied => {
                 // only update the src
@@ -424,7 +423,6 @@ impl ForwardingState {
 
         match result {
             CacheResult::ValidPath => {
-                println!("{:?}", path);
                 Ok(path)
             },
             CacheResult::BlackHole => Err(NetworkError::ForwardingBlackHole(path)),
