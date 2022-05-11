@@ -151,7 +151,7 @@ use crate::hard_policies::HardPolicy;
 use crate::netsim::config::{Config, ConfigModifier};
 use crate::netsim::Network;
 use crate::{Error, Stopper};
-use crate::dep_groups::strategy_parallel::{DAG, DAGNode};
+// use crate::dep_groups::strategy_parallel::{DAG, DAGNode};
 use daggy::Dag;
 
 use std::time::Duration;

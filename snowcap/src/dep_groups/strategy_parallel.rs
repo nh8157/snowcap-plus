@@ -1,6 +1,7 @@
 use itertools::{Itertools, fold};
 use petgraph::csr::NodeIndex;
 
+use crate::netsim::router::Router;
 use crate::netsim::types::{Destination, Prefix, Zone};
 use crate::netsim::{Network, RouterId, ForwardingState};
 use crate::netsim::config::{ConfigModifier, Config, ConfigExpr};
@@ -14,6 +15,7 @@ use std::time::{SystemTime, Duration, Instant};
 use log::error;
 use thiserror::Error;
 use daggy::Dag;
+use std::iter;
 
 use std::rc::Rc;
 use std::cell::{RefCell};
@@ -28,6 +30,8 @@ use std::cell::{RefCell};
 pub struct StrategyParallel {
     net: Network,
     dag: Dag<ConfigModifier, u32, u32>,
+    dag_map: Vec<Option<NodeIndex>>,
+    // use indexes to identify the location
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
     stop_time: Option<Duration>
@@ -49,11 +53,14 @@ impl StrategyDAG for StrategyParallel {
             // error!("Initial state errors::\n{}", fmt_err(&hard_policy.get_watch_errors(), &net));
             return Err(Error::InvalidInitialState);
         }
-        
+
+        let dag_map: Vec<Option<NodeIndex>> = iter::repeat(None).take(modifiers.len()).collect_vec();
+
         let strategy = Box::new(
             Self {
                 net: net,
                 dag: Dag::<ConfigModifier, u32, u32>::new(),
+                dag_map,
                 modifiers: modifiers,
                 hard_policy: hard_policy,
                 stop_time: time_budget
@@ -67,6 +74,8 @@ impl StrategyDAG for StrategyParallel {
         abort: Stopper
     ) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         // create a new network object, apply all configurations
+        println!("Begin working");
+        // println!("{:?}", &self.modifiers);
         let mut after_net = self.net.clone();
         for m in &self.modifiers {
             after_net.apply_modifier(m)?;
@@ -101,9 +110,12 @@ impl StrategyDAG for StrategyParallel {
                         x
                     )
                 )
-                .collect();
+                .collect_vec();
             config_map.insert((src, dst, reachability), relevant_configs);
         }
+
+        println!("All configs assigned");
+        // println!{"{:?}", config_map};
 
         // order configurations for each reachability condition
         for ((src, dst, reachability), configs) in config_map.iter() {
@@ -111,14 +123,18 @@ impl StrategyDAG for StrategyParallel {
                     self.net.get_route(*src, *dst).unwrap(),
                     after_net.get_route(*src, *dst).unwrap()
             );
+            println!("Initialized route");
             let boundary_routers = StrategyParallel::find_boundary_routers(&old_route, &new_route);
+            // println!("{:?}", boundary_routers);
             // examine reachability within each zone after the update
             // group configurations into according to zones
-            for br in 0..(boundary_routers.len() - 1) {
-                let zone = (boundary_routers[br], boundary_routers[br + 1]);
+            for br in 0..(boundary_routers.1.len() - 1) {
+                let old_zone = (boundary_routers.0[br], boundary_routers.0[br + 1]);
+                let new_zone = (boundary_routers.1[br], boundary_routers.1[br + 1]);
+                println!("Finding dependency");
                 let (old_zone_routers, new_zone_routers) = (
-                    StrategyParallel::get_routers_in_zone(zone, &old_route).unwrap(),
-                    StrategyParallel::get_routers_in_zone(zone, &new_route).unwrap()
+                    StrategyParallel::get_routers_in_zone(old_zone, &old_route).unwrap(),
+                    StrategyParallel::get_routers_in_zone(new_zone, &new_route).unwrap()
                 );
                 // configurations on the new route applied prior to configurations on old route
                 // this is a dependency for the condition reachable, what about conditions that are isolate?
@@ -129,6 +145,8 @@ impl StrategyDAG for StrategyParallel {
                     configs.clone(),
                     *reachability
                 ).unwrap();
+                println!("Dependency found");
+                // println!("{:?}", dependency);
             }
         }
         Ok(self.dag.clone())
@@ -153,31 +171,46 @@ impl StrategyParallel {
     }
 
     fn find_common_routers(route1: &Vec<RouterId>, route2: &Vec<RouterId>) -> Vec<RouterId> {
-        if route1.len() == 0 || route2.len() == 0 {
-            return vec![];
+        let mut common = Vec::<RouterId>::new();
+        let mut route_map = HashMap::<RouterId, bool>::new();
+        for r in route1.iter() {
+            route_map.insert(*r, false);
         }
-        let new_route1 = &route1[1..(route1.len())].to_vec();
-        let new_route2 = &route2[1..(route2.len())].to_vec();
-        if route1[0] == route2[0] {
-            let mut succ = StrategyParallel::find_common_routers(new_route1, new_route2);
-            succ.insert(0, route1[0]);
-            return succ;
-        } else {
-            let (succ1, succ2) = (
-                StrategyParallel::find_common_routers(route1, new_route2),
-                StrategyParallel::find_common_routers(new_route1, route2)
-            );
-            if succ1.len() > succ2.len() {
-                return succ1;
-            } else {
-                return succ2;
+        for r in route2.iter() {
+            if route_map.contains_key(r) {
+                common.push(*r as RouterId);
             }
         }
+        common
+        // major overhead
+        // if route1.len() == 0 || route2.len() == 0 {
+        //     return vec![];
+        // }
+        // let new_route1 = &route1[1..(route1.len())].to_vec();
+        // let new_route2 = &route2[1..(route2.len())].to_vec();
+        // if route1[0] == route2[0] {
+        //     let mut succ = StrategyParallel::find_common_routers(new_route1, new_route2);
+        //     succ.insert(0, route1[0]);
+        //     return succ;
+        // } else {
+        //     let (succ1, succ2) = (
+        //         StrategyParallel::find_common_routers(route1, new_route2),
+        //         StrategyParallel::find_common_routers(new_route1, route2)
+        //     );
+        //     if succ1.len() > succ2.len() {
+        //         return succ1;
+        //     } else {
+        //         return succ2;
+        //     }
+        // }
     }
 
     // these routers partition the network into different reachability zones
-    fn find_boundary_routers(old_route: &Vec<RouterId>, new_route: &Vec<RouterId>) -> Vec<RouterId> {
+    fn find_boundary_routers(old_route: &Vec<RouterId>, new_route: &Vec<RouterId>) -> (Vec<RouterId>, Vec<RouterId>) {
+        println!("Finding common routers");
+        // taking up most of the time
         let common_routers = StrategyParallel::find_common_routers(old_route, new_route);
+        println!("Common routers found");
         let mut zones: Vec<RouterId> = vec![common_routers[0]];
         for c in 0..(common_routers.len() - 1) {
             let this_router = common_routers[c];
@@ -196,10 +229,17 @@ impl StrategyParallel {
                 zones.push(next_router);
             }
         }
-        if *zones.last().unwrap() != *common_routers.last().unwrap() {
-            zones.push(*common_routers.last().unwrap());
+        let mut new_zone = zones.clone();
+        let mut old_zone = zones.clone();
+        if old_route.last().unwrap() != new_route.last().unwrap() {
+            // if the last hop (egress router is different)
+            new_zone.push(*new_route.last().unwrap());
+            old_zone.push(*old_route.last().unwrap());
+        } else if *zones.last().unwrap() != *common_routers.last().unwrap() {
+            new_zone.push(*common_routers.last().unwrap());
+            old_zone.push(*common_routers.last().unwrap());
         }
-        zones
+        (old_zone, new_zone)
     }
 
     fn find_dependency_in_zone(
@@ -272,15 +312,51 @@ impl StrategyParallel {
 
     fn is_relevant_to_reachability(
         src: RouterId, 
-        dst: Prefix, 
+        dst: Prefix,
         route1: Vec<RouterId>, 
         route2: Vec<RouterId>,
         config: &ConfigModifier
     ) -> bool {
-        true
+        // println!("Old route: {:?}", route1);
+        // println!("New route: {:?}", route2);
+        match config {
+            ConfigModifier::Insert(c) | ConfigModifier::Remove(c) => {
+                match c {
+                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                        if  route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
+                            route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some() {
+                                return true;
+                        }
+                        return false;
+                    }
+                    _ => false
+                }
+            }
+            ConfigModifier::Update { from: c1, to: c2 } => {
+                let r1 = match c1 {
+                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                        route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
+                        route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some()
+                    }
+                    _ => false
+                };
+                let r2 = match c2 {
+                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                        route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
+                        route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some()
+                    }
+                    _ => false 
+                };
+                // println!("{:?}, {:?}", r1, r2);
+                r1 && r2
+            }
+        }
     }
 }
 
+/*
+Legacy code for a customized dag
+Now switched to daggy::Dag
 #[derive(Clone)]
 pub struct DAG {
     head: Rc<RefCell<DAGNode>>,
@@ -432,16 +508,21 @@ enum DAGError {
     #[error("Next does not exist")]
     NextNotExists
 }
+*/
 
 #[cfg(test)]
 mod test {
-    use crate::dep_groups::strategy_parallel::{StrategyParallel, DAG, DAGNode};
+    use crate::dep_groups::strategy_parallel::{StrategyParallel};
     use crate::hard_policies::HardPolicy;
     use crate::netsim::types::Destination;
     use crate::netsim::config::{Config, ConfigExpr, ConfigModifier};
     use crate::netsim::{Network, RouterId, AsId, Prefix};
     use crate::netsim::BgpSessionType::*;
     use crate::strategies::StrategyDAG;
+    use crate::example_networks;
+    use crate::example_networks::repetitions::*;
+    use crate::example_networks::ExampleNetwork;
+    use crate::Stopper;
     use std::collections::HashMap;
     use std::rc::Rc;
     use std::cell::{RefCell, Ref};
@@ -564,38 +645,38 @@ mod test {
 
     #[test]
     fn test_dag_init() {
-        let dag = DAG::new();
+        // let dag = DAG::new();
     }
 
     #[test]
     fn test_dag_node_add() {
-        let mut node1 = Rc::new(RefCell::new(DAGNode::new()));
-        let mut node2 = Rc::new(RefCell::new(DAGNode::new()));
-        let mut node3 = Rc::new(RefCell::new(DAGNode::new()));
-        let mut node4 = Rc::new(RefCell::new(DAGNode::new()));
-        let mod1 = ConfigModifier::Insert(
-            ConfigExpr::StaticRoute { router: NodeIndex::new(1), prefix: Prefix(0), target: NodeIndex::new(5) }
-        );
-        let mod2 = ConfigModifier::Insert(
-            ConfigExpr::AccessControl { router: NodeIndex::new(1), accept: vec![], deny: vec![] }
-        );
-        let mod3 = ConfigModifier::Insert(
-            ConfigExpr::StaticRoute { router: NodeIndex::new(4), prefix: Prefix(0), target: NodeIndex::new(5) }
-        );
-        assert!(node2.borrow_mut().set_val(mod1).is_ok(), true);
-        assert!(node3.borrow_mut().set_val(mod2).is_ok(), true);
-        assert!(node4.borrow_mut().set_val(mod3).is_ok(), true);
-        assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_ok(), true);
-        assert!(node2.borrow_mut().add_prev(Rc::clone(&node1)).is_ok(), true);
-        assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_ok(), false);
-        // assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_err(), true);
-        assert!(node1.borrow_mut().add_next(Rc::clone(&node3)).is_ok(), true);
-        assert!(node3.borrow_mut().add_next(Rc::clone(&node1)).is_ok(), true); 
-        assert!(node2.borrow_mut().add_next(Rc::clone(&node4)).is_ok(), true);
-        assert!(node4.borrow_mut().add_prev(Rc::clone(&node2)).is_ok(), true);
-        assert!(node1.borrow_mut().rmv_next(Rc::clone(&node2)).is_ok(), true);
-        assert!(node2.borrow_mut().rmv_prev(Rc::clone(&node1)).is_ok(), true);
-        // assert!(node2.borrow_mut().add_next(next_node))
+        // let mut node1 = Rc::new(RefCell::new(DAGNode::new()));
+        // let mut node2 = Rc::new(RefCell::new(DAGNode::new()));
+        // let mut node3 = Rc::new(RefCell::new(DAGNode::new()));
+        // let mut node4 = Rc::new(RefCell::new(DAGNode::new()));
+        // let mod1 = ConfigModifier::Insert(
+        //     ConfigExpr::StaticRoute { router: NodeIndex::new(1), prefix: Prefix(0), target: NodeIndex::new(5) }
+        // );
+        // let mod2 = ConfigModifier::Insert(
+        //     ConfigExpr::AccessControl { router: NodeIndex::new(1), accept: vec![], deny: vec![] }
+        // );
+        // let mod3 = ConfigModifier::Insert(
+        //     ConfigExpr::StaticRoute { router: NodeIndex::new(4), prefix: Prefix(0), target: NodeIndex::new(5) }
+        // );
+        // assert!(node2.borrow_mut().set_val(mod1).is_ok(), true);
+        // assert!(node3.borrow_mut().set_val(mod2).is_ok(), true);
+        // assert!(node4.borrow_mut().set_val(mod3).is_ok(), true);
+        // assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_ok(), true);
+        // assert!(node2.borrow_mut().add_prev(Rc::clone(&node1)).is_ok(), true);
+        // assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_ok(), false);
+        // // assert!(node1.borrow_mut().add_next(Rc::clone(&node2)).is_err(), true);
+        // assert!(node1.borrow_mut().add_next(Rc::clone(&node3)).is_ok(), true);
+        // assert!(node3.borrow_mut().add_next(Rc::clone(&node1)).is_ok(), true); 
+        // assert!(node2.borrow_mut().add_next(Rc::clone(&node4)).is_ok(), true);
+        // assert!(node4.borrow_mut().add_prev(Rc::clone(&node2)).is_ok(), true);
+        // assert!(node1.borrow_mut().rmv_next(Rc::clone(&node2)).is_ok(), true);
+        // assert!(node2.borrow_mut().rmv_prev(Rc::clone(&node1)).is_ok(), true);
+        // // assert!(node2.borrow_mut().add_next(next_node))
     }
 
     #[test]
@@ -615,5 +696,17 @@ mod test {
         dag_map.insert(n1, &mod1);
         let n2 = dag.add_node(mod1.clone());
         let e = dag.add_edge(n1, n2, 1).unwrap();
+    }
+
+    #[test]
+    fn test_work() {
+        type CurrentNet = example_networks::ChainGadget<Repetition100>;
+        let mut net = CurrentNet::net(0);
+        let mods = CurrentNet::final_config(&net, 0);
+        let policy = CurrentNet::get_policy(&net, 0);
+        let stopper = Stopper::new();
+        // println!("{:?}", net.get_route(NodeIndex::new(3), Prefix(0)).unwrap());
+        let strategy = StrategyParallel::synthesize(net, mods, policy, None, stopper).unwrap();
+        // let after_net = net.set_config(&mods);
     }
 }

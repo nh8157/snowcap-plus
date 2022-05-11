@@ -103,6 +103,9 @@ where
         c.add(BgpSession { source: e0, target: b0, session_type: EBgp }).unwrap();
         c.add(BgpSession { source: e1, target: b1, session_type: EBgp }).unwrap();
 
+        // c.add(StaticRoute {router: b0, prefix: Prefix(0), target: e0}).unwrap();
+        // c.add(StaticRoute {router: b1, prefix: Prefix(0), target: e1}).unwrap();
+
         // set the local pref
         c.add(BgpRouteMap {
             router: b0,
@@ -175,6 +178,9 @@ where
         })
         .unwrap();
 
+        // c.add(StaticRoute {router: b0, prefix: Prefix(0), target: e0}).unwrap();
+        // c.add(StaticRoute {router: b1, prefix: Prefix(0), target: e1}).unwrap();
+        
         // add all the other link weights
         let mut current_r = net.get_router_id(String::from("r00")).unwrap();
         let mut last_r = b0;
