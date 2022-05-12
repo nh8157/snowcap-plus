@@ -14,7 +14,8 @@ use std::fmt::Debug;
 use std::time::{SystemTime, Duration, Instant};
 use log::error;
 use thiserror::Error;
-use daggy::Dag;
+use daggy::{Dag, Parents, Children};
+use daggy::Walker;
 use std::iter;
 
 use std::rc::Rc;
@@ -30,7 +31,7 @@ use std::cell::{RefCell};
 pub struct StrategyParallel {
     net: Network,
     dag: Dag<ConfigModifier, u32, u32>,
-    dag_map: Vec<Option<NodeIndex>>,
+    dag_map: Vec<Option<daggy::NodeIndex>>,
     // use indexes to identify the location
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
@@ -54,7 +55,7 @@ impl StrategyDAG for StrategyParallel {
             return Err(Error::InvalidInitialState);
         }
 
-        let dag_map: Vec<Option<NodeIndex>> = iter::repeat(None).take(modifiers.len()).collect_vec();
+        let dag_map: Vec<Option<daggy::NodeIndex>> = iter::repeat(None).take(modifiers.len()).collect_vec();
 
         let strategy = Box::new(
             Self {
@@ -74,7 +75,7 @@ impl StrategyDAG for StrategyParallel {
         abort: Stopper
     ) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         // create a new network object, apply all configurations
-        println!("Begin working");
+
         // println!("{:?}", &self.modifiers);
         let mut after_net = self.net.clone();
         for m in &self.modifiers {
@@ -114,7 +115,7 @@ impl StrategyDAG for StrategyParallel {
             config_map.insert((src, dst, reachability), relevant_configs);
         }
 
-        println!("All configs assigned");
+        // println!("All configs assigned");
         // println!{"{:?}", config_map};
 
         // order configurations for each reachability condition
@@ -123,7 +124,7 @@ impl StrategyDAG for StrategyParallel {
                     self.net.get_route(*src, *dst).unwrap(),
                     after_net.get_route(*src, *dst).unwrap()
             );
-            println!("Initialized route");
+            // println!("Initialized route");
             let boundary_routers = StrategyParallel::find_boundary_routers(&old_route, &new_route);
             // println!("{:?}", boundary_routers);
             // examine reachability within each zone after the update
@@ -131,7 +132,7 @@ impl StrategyDAG for StrategyParallel {
             for br in 0..(boundary_routers.1.len() - 1) {
                 let old_zone = (boundary_routers.0[br], boundary_routers.0[br + 1]);
                 let new_zone = (boundary_routers.1[br], boundary_routers.1[br + 1]);
-                println!("Finding dependency");
+                // println!("Finding dependency");
                 let (old_zone_routers, new_zone_routers) = (
                     StrategyParallel::get_routers_in_zone(old_zone, &old_route).unwrap(),
                     StrategyParallel::get_routers_in_zone(new_zone, &new_route).unwrap()
@@ -145,8 +146,42 @@ impl StrategyDAG for StrategyParallel {
                     configs.clone(),
                     *reachability
                 ).unwrap();
-                println!("Dependency found");
-                // println!("{:?}", dependency);
+                // println!("Dependency found");
+                // let critical_node = self.add_node_get_index(dependency[1][0]);
+                let critical_node = {
+                    let index = self.modifiers.iter().position(|x| x == dependency[1][0]).unwrap();
+                    if self.dag_map[index].is_none() {
+                        // critical config not in dag
+                        self.dag_map[index] = Some(self.dag.add_node(dependency[1][0].clone()));
+                    } 
+                    self.dag_map[index].unwrap()
+                };
+                for &c in dependency[0].iter() {
+                    // check if c is in the dag
+                    let index = self.modifiers.iter().position(|x| x == c).unwrap();
+                    if self.dag_map[index].is_none() {
+                        // c not in dag
+                        let (_, node_index) = self.dag.add_parent(critical_node, 1, c.clone());
+                        self.dag_map[index] = Some(node_index);
+                    } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
+                        // they are parallel to each other
+                        // add link from parent to child
+                        self.dag.add_edge(self.dag_map[index].unwrap(), critical_node, 1).unwrap();
+                    }
+                }
+                for &c in dependency[2].iter() {
+                    let index = self.modifiers.iter().position(|x| x == c).unwrap();
+                    if self.dag_map[index].is_none() {
+                        // c not in dag
+                        let (_, node_index) = self.dag.add_child(critical_node, 1, c.clone());
+                        self.dag_map[index] = Some(node_index);
+                    } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
+                        // they are parallel to each other
+                        // add link from parent to child
+                        self.dag.add_edge(critical_node, self.dag_map[index].unwrap(), 1).unwrap();
+                    }
+                }
+                    // println!("{:?}", dependency);
             }
         }
         Ok(self.dag.clone())
@@ -207,10 +242,10 @@ impl StrategyParallel {
 
     // these routers partition the network into different reachability zones
     fn find_boundary_routers(old_route: &Vec<RouterId>, new_route: &Vec<RouterId>) -> (Vec<RouterId>, Vec<RouterId>) {
-        println!("Finding common routers");
+        // println!("Finding common routers");
         // taking up most of the time
         let common_routers = StrategyParallel::find_common_routers(old_route, new_route);
-        println!("Common routers found");
+        // println!("Common routers found");
         let mut zones: Vec<RouterId> = vec![common_routers[0]];
         for c in 0..(common_routers.len() - 1) {
             let this_router = common_routers[c];
@@ -308,6 +343,60 @@ impl StrategyParallel {
             => true,
             _ => false
         }
+    }
+
+    // not used anymore
+    fn add_dependencies_dag(
+        &mut self,
+        dependency: Vec<Vec<&ConfigModifier>>
+    ) -> Result<(), Error> {
+        // first check if the critical configuration is in graph
+        let critical_node = self.add_node_get_index(dependency[1][0]);
+        for &c in dependency[0].iter() {
+            // check if c is in the dag
+            let index = self.modifiers.iter().position(|x| x == c).unwrap();
+            if self.dag_map[index].is_none() {
+                // c not in dag
+                let (_, node_index) = self.dag.add_parent(critical_node, 1, c.clone());
+                self.dag_map[index] = Some(node_index);
+            } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
+                // they are parallel to each other
+                // add link from parent to child
+                self.dag.add_edge(self.dag_map[index].unwrap(), critical_node, 1);
+            }
+        }
+        for &c in dependency[2].iter() {
+            let index = self.modifiers.iter().position(|x| x == c).unwrap();
+            if self.dag_map[index].is_none() {
+                // c not in dag
+                let (_, node_index) = self.dag.add_child(critical_node, 1, c.clone());
+                self.dag_map[index] = Some(node_index);
+            } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
+                // they are parallel to each other
+                // add link from parent to child
+                self.dag.add_edge(critical_node, self.dag_map[index].unwrap(), 1);
+            }
+        }
+        Ok(())
+    }
+
+    fn add_node_get_index(&mut self, config: &ConfigModifier) -> daggy::NodeIndex {
+        let index = self.modifiers.iter().position(|x| x == config).unwrap();
+        if self.dag_map[index].is_none() {
+            // critical config not in dag
+            self.dag_map[index] = Some(self.dag.add_node(config.clone()));
+        } 
+        self.dag_map[index].unwrap()
+    }
+
+    fn is_child(&self, parent: daggy::NodeIndex, child: daggy::NodeIndex) -> bool {
+        // let children = self.dag.children(parent.into());
+        // for (_, this_child) in children {
+        //     if this_child == child {
+
+        //     }
+        // }
+        false
     }
 
     fn is_relevant_to_reachability(
@@ -518,11 +607,17 @@ mod test {
     use crate::netsim::config::{Config, ConfigExpr, ConfigModifier};
     use crate::netsim::{Network, RouterId, AsId, Prefix};
     use crate::netsim::BgpSessionType::*;
-    use crate::strategies::StrategyDAG;
+    use crate::strategies::{StrategyDAG, Strategy};
+    use crate::strategies::StrategyTRTA;
     use crate::example_networks;
     use crate::example_networks::repetitions::*;
     use crate::example_networks::ExampleNetwork;
     use crate::Stopper;
+    use std::fs::File;
+    use duration_string::DurationString;
+    use std::os::unix::prelude::FileExt;
+    use std::path::Path;
+    use std::time::{Instant, Duration};
     use std::collections::HashMap;
     use std::rc::Rc;
     use std::cell::{RefCell, Ref};
@@ -698,15 +793,378 @@ mod test {
         let e = dag.add_edge(n1, n2, 1).unwrap();
     }
 
+
+    fn get_network(repetitions: u32) -> Option<(Network, Config, HardPolicy)> {
+        match repetitions {
+            1 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition1>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            2 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition2>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            3 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition3>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            4 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition4>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            5 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition5>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            6 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition6>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            7 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition7>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            8 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition8>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            9 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition9>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            10 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition10>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            11 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition11>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            12 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition12>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            13 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition13>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            14 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition14>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            15 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition15>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            16 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition16>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            17 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition17>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            18 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition18>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            19 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition19>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            20 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition20>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            30 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition30>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            40 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition40>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            50 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition50>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            60 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition60>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            70 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition70>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            80 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition80>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            90 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition90>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            100 => {
+                type CurrentNet = example_networks::ChainGadget<Repetition100>;
+                let initial_variant = 0;
+                let final_variant = 0;
+                let net = CurrentNet::net(initial_variant);
+                Some((
+                    net.clone(),
+                    CurrentNet::final_config(&net, final_variant),
+                    CurrentNet::get_policy(&net, final_variant),
+                ))
+            }
+            _ => None
+        }
+    }
+    
     #[test]
-    fn test_work() {
+    fn test_strategy_parallel() {
         type CurrentNet = example_networks::ChainGadget<Repetition100>;
         let mut net = CurrentNet::net(0);
         let mods = CurrentNet::final_config(&net, 0);
         let policy = CurrentNet::get_policy(&net, 0);
         let stopper = Stopper::new();
-        // println!("{:?}", net.get_route(NodeIndex::new(3), Prefix(0)).unwrap());
         let strategy = StrategyParallel::synthesize(net, mods, policy, None, stopper).unwrap();
-        // let after_net = net.set_config(&mods);
     }
+
+    #[test]
+    fn strategy_parallel_evaluation() {
+        let path = Path::new("../eval_parallel/parallel_evaluation.txt");
+        let file  = File::create(path).expect("Cannot create file");
+        let mut final_string: String = String::new();
+        for i in (1..101) {
+            if let Some((net, configs, policy)) = get_network(i) {
+                println!("Iteration {}", i);
+                let start = Instant::now();
+                let mut iter_str: String = i.to_string();
+                let strategy = StrategyParallel::synthesize(net, configs, policy, None, Stopper::new());
+                let end = start.elapsed().as_millis().to_string();
+                // let end: String = DurationString::from(start.elapsed().as_millis()).into();
+                iter_str.push_str(" ");
+                iter_str.push_str(&end);
+                iter_str.push_str("\n");
+                final_string.push_str(&iter_str);
+                println!("Done after {:?}", end);
+            }
+        }
+        file.write_at(final_string.as_bytes(), 0).expect("Write failed");
+    }
+
+    #[test]
+    fn strategy_trta_evaluation() {
+        let path = Path::new("../eval_parallel/trta_evaluation.txt");
+        let file = File::create(path).expect("Cannot create file");
+        let mut final_string: String = String::new();
+
+        for i in (1..101) {
+            if let Some((net, configs, policy)) = get_network(i) {
+                println!("Iteration {}", i);
+                let mut iter_str: String = i.to_string();
+                let start = Instant::now();
+                let strategy = StrategyTRTA::synthesize(net, configs, policy, None, Stopper::new());
+                let end = start.elapsed().as_millis().to_string();
+                iter_str.push_str(" ");
+                iter_str.push_str(&end);
+                iter_str.push_str("\n");
+                final_string.push_str(&iter_str);
+                // let str_to_write = iter_st
+                // file.write_at(end.as_bytes(), 32*ctr as u64).expect("Cannot write to file");
+                // file.write_at(b"\n", 34*ctr as u64).expect("Cannot write to file");
+                println!("Done after {:?}", end);
+            }
+        }
+        file.write_at(final_string.as_bytes(), 0).expect("Write failed");
+    }
+
 }

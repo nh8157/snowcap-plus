@@ -267,6 +267,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "duration-string"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eea73537131d449a63e87568ba9d0cff35500501da18b9c2c98e693cabd22139"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1269,6 +1278,7 @@ version = "0.1.0"
 dependencies = [
  "assert_approx_eq",
  "daggy",
+ "duration-string",
  "itertools",
  "lazy_static",
  "libc",

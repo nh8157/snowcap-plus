@@ -848,7 +848,7 @@ impl Network {
         // if so, appended to the config struct of the network
         self.config.apply_modifier(modifier)?;
         if undo {
-            println!("Undoing modifier {:?}", modifier);
+            // println!("Undoing modifier {:?}", modifier);
         }
         
         // If the modifier can be applied, then everything is ok and we can do the actual change.

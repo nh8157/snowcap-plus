@@ -195,7 +195,7 @@ impl Strategy for StrategyTRTA {
         // clear the undo stack
         net.clear_undo_stack();
         for i in &modifiers {
-            println!("{:?}", i);
+            // println!("{:?}", i);
         }
         // check the state
         hard_policy.set_num_mods_if_none(modifiers.len());
@@ -334,7 +334,7 @@ impl Strategy for StrategyTRTA {
                     {
                         self.seen_difficult_dependency = true;
                     }
-                    println!("{:?} to find an invalid option", get_option_end);
+                    // println!("{:?} to find an invalid option", get_option_end);
                     // There exists no option, that we can take, which would lead to a good result!
                     // First, we set the next index to the length of the options, in order to
                     // remember that we have checked everything
@@ -440,16 +440,16 @@ impl StrategyTRTA {
         assert!(frame.idx < frame.rem_groups.len());
         // this loop checks through every option in the rem_group
         let mut ctr = 1;
-        println!("Checking remaining group");
+        // println!("Checking remaining group");
         for group_pos in frame.idx..frame.rem_groups.len() {
-            println!("In stack loop");
+            // println!("In stack loop");
             let group_idx = *frame.rem_groups.get(group_pos).unwrap();
             // perform the modification group
             let mut mod_ok: bool = true;
             let mut num_undo: usize = 0;
             let mut num_undo_policy: usize = 0;
             // defining the scope of for loop here
-            println!("\tStart apply_group loop");
+            // println!("\tStart apply_group loop");
             'apply_group: for modifier in self.groups[group_idx].iter() {
                 // when a dependency is found, the modifiers would be grouped into
                 // a single object in self.groups[group_idx], thus the loop will
@@ -463,19 +463,19 @@ impl StrategyTRTA {
                 let mod_start = Instant::now();
                 let mod_result = net.apply_modifier(modifier);
                 let mod_end = mod_start.elapsed();
-                println!("\tapply_modifier {:?}", mod_end);
+                // println!("\tapply_modifier {:?}", mod_end);
 
                 match mod_result {
                     Ok(()) => {
                         num_undo_policy += 1;
                         let mut fw_state = net.get_forwarding_state();
                         // checks whether the order aligns with the policy
-                        println!("\t\tChecking option {} against invariances", ctr);
+                        // println!("\t\tChecking option {} against invariances", ctr);
                         // return Ok(()) or Err
                         let hard_start = Instant::now();
                         hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
                         let hard_end = hard_start.elapsed();
-                        println!("\t\tChecking invariances {:?}", hard_end);
+                        // println!("\t\tChecking invariances {:?}", hard_end);
                         // what does this check function do?
                         if !hard_policy.check() {
                             ctr += 1;
@@ -492,11 +492,11 @@ impl StrategyTRTA {
                     }
                 } 
             }
-            println!("\tEnd apply_group");
+            // println!("\tEnd apply_group");
             // check if the modifier is ok
             if mod_ok {
                 // everything fine, return the index
-                println!("End stack, found a valid solution");
+                // println!("End stack, found a valid solution");
                 return Ok(group_pos);
             } else {
                 // undo the hard policy and the network
@@ -506,10 +506,10 @@ impl StrategyTRTA {
                     net.undo_action().expect("Cannot perform undo!");
                 });
                 let undo_end = undo_start.elapsed();
-                println!("\tUndo actions {:?}", undo_end);
+                // println!("\tUndo actions {:?}", undo_end);
             }
         }
-        println!("End stack, could not find a valid solution");
+        // println!("End stack, could not find a valid solution");
         // if we reach this position, we know that every possible option is bad!
         Err(self.rng.gen_range(frame.idx, frame.rem_groups.len()))
     }
@@ -537,7 +537,7 @@ impl StrategyTRTA {
         abort: Stopper,
     ) -> Option<(Vec<ConfigModifier>, Vec<usize>)> {
         // apply the modifier to the network to get the errors
-        println!("Finding dependencies!");
+        // println!("Finding dependencies!");
         let mut num_undo = 0;
         let mut num_undo_policy = 0;
         let mut errors = None;
