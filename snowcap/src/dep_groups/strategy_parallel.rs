@@ -1120,51 +1120,56 @@ mod test {
 
     #[test]
     fn strategy_parallel_evaluation() {
-        let path = Path::new("../eval_parallel/parallel_evaluation.txt");
-        let file  = File::create(path).expect("Cannot create file");
-        let mut final_string: String = String::new();
-        for i in (1..101) {
-            if let Some((net, configs, policy)) = get_network(i) {
-                println!("Iteration {}", i);
-                let start = Instant::now();
-                let mut iter_str: String = i.to_string();
-                let strategy = StrategyParallel::synthesize(net, configs, policy, None, Stopper::new());
-                let end = start.elapsed().as_millis().to_string();
-                // let end: String = DurationString::from(start.elapsed().as_millis()).into();
-                iter_str.push_str(" ");
-                iter_str.push_str(&end);
-                iter_str.push_str("\n");
-                final_string.push_str(&iter_str);
-                println!("Done after {:?}", end);
+        for i in (1..51) {
+            let dir = format!("../eval_parallel/parallel_evaluation_{}.txt", i);
+            let path = Path::new(&dir);
+            let file  = File::create(path).expect("Cannot create file");
+            let mut final_string: String = String::new();
+            for i in (1..101) {
+                if let Some((net, configs, policy)) = get_network(i) {
+                    println!("Iteration {}", i);
+                    let start = Instant::now();
+                    let mut iter_str: String = i.to_string();
+                    let strategy = StrategyParallel::synthesize(net, configs, policy, None, Stopper::new());
+                    let end = start.elapsed().as_millis().to_string();
+                    // let end: String = DurationString::from(start.elapsed().as_millis()).into();
+                    iter_str.push_str(" ");
+                    iter_str.push_str(&end);
+                    iter_str.push_str("\n");
+                    final_string.push_str(&iter_str);
+                    println!("Done after {:?}", end);
+                }
             }
+            file.write_at(final_string.as_bytes(), 0).expect("Write failed");
         }
-        file.write_at(final_string.as_bytes(), 0).expect("Write failed");
     }
 
     #[test]
     fn strategy_trta_evaluation() {
-        let path = Path::new("../eval_parallel/trta_evaluation.txt");
-        let file = File::create(path).expect("Cannot create file");
-        let mut final_string: String = String::new();
-
-        for i in (1..101) {
-            if let Some((net, configs, policy)) = get_network(i) {
-                println!("Iteration {}", i);
-                let mut iter_str: String = i.to_string();
-                let start = Instant::now();
-                let strategy = StrategyTRTA::synthesize(net, configs, policy, None, Stopper::new());
-                let end = start.elapsed().as_millis().to_string();
-                iter_str.push_str(" ");
-                iter_str.push_str(&end);
-                iter_str.push_str("\n");
-                final_string.push_str(&iter_str);
-                // let str_to_write = iter_st
-                // file.write_at(end.as_bytes(), 32*ctr as u64).expect("Cannot write to file");
-                // file.write_at(b"\n", 34*ctr as u64).expect("Cannot write to file");
-                println!("Done after {:?}", end);
+        for i in (1..51) {
+            let dir = format!("../eval_parallel/trta_evaluation_{}.txt", i);
+            let path = Path::new(&dir);
+            let file = File::create(path).expect("Cannot create file");
+            let mut final_string: String = String::new();
+            for i in (1..101) {
+                if let Some((net, configs, policy)) = get_network(i) {
+                    println!("Iteration {}", i);
+                    let mut iter_str: String = i.to_string();
+                    let start = Instant::now();
+                    let strategy = StrategyTRTA::synthesize(net, configs, policy, None, Stopper::new());
+                    let end = start.elapsed().as_millis().to_string();
+                    iter_str.push_str(" ");
+                    iter_str.push_str(&end);
+                    iter_str.push_str("\n");
+                    final_string.push_str(&iter_str);
+                    // let str_to_write = iter_st
+                    // file.write_at(end.as_bytes(), 32*ctr as u64).expect("Cannot write to file");
+                    // file.write_at(b"\n", 34*ctr as u64).expect("Cannot write to file");
+                    println!("Done after {:?}", end);
+                }
             }
+            file.write_at(final_string.as_bytes(), 0).expect("Write failed");
         }
-        file.write_at(final_string.as_bytes(), 0).expect("Write failed");
     }
 
 }
