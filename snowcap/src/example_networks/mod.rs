@@ -55,6 +55,9 @@ pub mod repetitions;
 mod chain_gadget;
 pub use chain_gadget::{ChainGadget, StateSpecificChainGadget};
 
+mod chain_gadget_legacy;
+pub use chain_gadget_legacy::ChainGadgetLegacy;
+
 mod abilene_net;
 pub use abilene_net::AbileneNetwork;
 

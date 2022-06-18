@@ -695,6 +695,7 @@ impl PhysicalNetwork {
 
         // start the flows
         let stop = Arc::new(AtomicBool::new(false));
+        // what is the handle here for?
         let handles: Vec<thread::JoinHandle<Result<(), String>>> = self
             .clients
             .iter()

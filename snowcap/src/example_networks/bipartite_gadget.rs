@@ -90,7 +90,7 @@ where
 
         let mut net = Network::new();
 
-        // create the shared routers which fonnect all the n copies
+        // create the shared routers which connect all the n copies
         let bx = net.add_router(String::from("bx"));
         let ex = net.add_external_router(String::from("ex"), AsId(65100));
 

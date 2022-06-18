@@ -42,7 +42,8 @@ pub struct Router {
     /// Static Routes for Prefixes
     pub(crate) static_routes: HashMap<Prefix, RouterId>,
     /// hashmap of all bgp sessions
-    bgp_sessions: HashMap<RouterId, BgpSessionType>,
+    /// modified the type to public type
+    pub(crate) bgp_sessions: HashMap<RouterId, BgpSessionType>,
     /// Table containing all received entries. It is represented as a hashmap, mapping the prefixes
     /// to another hashmap, which maps the received router id to the entry. This way, we can store
     /// one entry for every prefix and every session.
@@ -883,6 +884,7 @@ impl Router {
         let mut new_entry = None;
 
         // find the new best route
+        // multiple entries may coexist for a single prefix
         if let Some(rib_in) = self.bgp_rib_in.get(&prefix) {
             for entry_unprocessed in rib_in.values() {
                 let entry = match self.process_bgp_rib_in_route(entry_unprocessed.clone())? {
@@ -891,6 +893,7 @@ impl Router {
                 };
                 let mut better = true;
                 if let Some(current_best) = new_entry.as_ref() {
+                    // implicitly compares the two routes according to BGP decision model
                     better = &entry > current_best;
                 }
                 if better {
@@ -904,6 +907,7 @@ impl Router {
             // replace the entry
             if let Some(new_entry) = new_entry {
                 // insert the new entry, and add the change to the undo stack
+                // bgp_rib is the final rib table
                 match self.bgp_rib.insert(prefix, new_entry) {
                     Some(old_entry) => self
                         .undo_stack
@@ -1087,6 +1091,7 @@ impl Router {
                 Some(map) => {
                     entry = match map.apply(entry) {
                         (true, Some(e)) => break e,
+                        // no such route exists
                         (true, None) => return Ok(None),
                         (false, Some(e)) => e,
                         (false, None) => unreachable!(),

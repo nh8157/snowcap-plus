@@ -43,11 +43,11 @@ use std::marker::PhantomData;
 /// connections to `b0`, and in the final configuration, all routers have an iBGP peer connection
 /// to `b1`. To avoid loops, the router `r(N-1)` must be configured before `r(N-2)`, and so on.
 /// There exists only one single valid solution to this problem.
-pub struct ChainGadget<R = Repetition3> {
+pub struct ChainGadgetLegacy<R = Repetition3> {
     phantom: PhantomData<R>,
 }
 
-impl<R> ExampleNetwork for ChainGadget<R>
+impl<R> ExampleNetwork for ChainGadgetLegacy<R>
 where
     R: Repetitions,
 {

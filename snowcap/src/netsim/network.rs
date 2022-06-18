@@ -1092,6 +1092,8 @@ impl Network {
                 if is_source_external || is_target_external {
                     Err(NetworkError::InvalidBgpSessionType(source, target, session_type))
                 } else {
+                    // both routers register the type as iBGP Peer
+                    // iBGP peers are symmetrical in this case 
                     Ok((BgpSessionType::IBgpPeer, BgpSessionType::IBgpPeer))
                 }
             }
@@ -1099,6 +1101,7 @@ impl Network {
                 if is_source_external || is_target_external {
                     Err(NetworkError::InvalidBgpSessionType(source, target, session_type))
                 } else {
+                    // a route reflector session
                     Ok((BgpSessionType::IBgpClient, BgpSessionType::IBgpPeer))
                 }
             }
@@ -1106,6 +1109,7 @@ impl Network {
                 if !(is_source_external || is_target_external) {
                     Err(NetworkError::InvalidBgpSessionType(source, target, session_type))
                 } else {
+                    // both routers are boundary routers
                     Ok((BgpSessionType::EBgp, BgpSessionType::EBgp))
                 }
             }
