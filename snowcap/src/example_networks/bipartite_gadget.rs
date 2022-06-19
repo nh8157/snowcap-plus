@@ -188,6 +188,8 @@ where
                 c.add(IgpLinkWeight { source: rb, target: re, weight: 1.0 }).unwrap();
                 c.add(IgpLinkWeight { target: rb, source: re, weight: 1.0 }).unwrap();
 
+                // println!("{:?}", &rt);
+
                 // add full-mesh link weights of tI, and between tI and rJ
                 all_t.iter().for_each(|t| {
                     c.add(IgpLinkWeight { source: *t, target: rt, weight: 1.0 }).unwrap();
@@ -215,7 +217,9 @@ where
 
                 // add the problematic session only for n > 0
                 if n > 0 {
-                    c.add(BgpSession { source: rr, target: bx, session_type: IBgpClient }).unwrap();
+                    // original code
+                    // c.add(BgpSession { source: rr, target: bx, session_type: IBgpClient }).unwrap();
+                    c.add(BgpSession { source: bx, target: rr, session_type: IBgpClient }).unwrap();
                 }
 
                 // add router_r and router_t to the already existing vector
@@ -303,7 +307,8 @@ where
 
                 // add the problematic session only for n > 0
                 if n > 0 {
-                    c.add(BgpSession { source: rr, target: bx, session_type: IBgpClient }).unwrap();
+                    // c.add(BgpSession { source: rr, target: bx, session_type: IBgpClient }).unwrap();
+                    c.add(BgpSession { source: bx, target: rr, session_type: IBgpClient }).unwrap();
                 }
 
                 // add router_r and router_t to the already existing vector

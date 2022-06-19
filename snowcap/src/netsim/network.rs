@@ -1122,6 +1122,7 @@ impl Network {
                 .ok_or(NetworkError::DeviceNotFound(source))?
                 .establish_ebgp_session(target, &mut self.queue, parent_event_id, undo)?;
         } else {
+            // if the session is IBgpClient, then for the rr, the target is the client
             self.routers
                 .get_mut(&source)
                 .ok_or(NetworkError::DeviceNotFound(source))?

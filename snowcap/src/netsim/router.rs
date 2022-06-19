@@ -525,7 +525,7 @@ impl Router {
 
     /// establish a bgp session with a peer
     /// `session_type` tells that `target` is in relation to `self`. If `session_type` is
-    /// `BgpSessionType::IbgpClient`, then the `target` is added as client to `self`. Update the
+    /// `BgpSessionType::IBgpClient`, then the `target` is added as client to `self`. Update the
     /// bgp tables if undo is not set. If `undo` is set, undo from the undo_stack instead of
     /// updating the bgp tables.
     pub(crate) fn establish_bgp_session(
@@ -1185,8 +1185,10 @@ impl Router {
 
         Ok(match (from_type, to_type) {
             (BgpSessionType::EBgp, _) => true,
+            // if self is the client in the session the prefix was learned from, then the route is exported
             (BgpSessionType::IBgpClient, _) => true,
             (_, BgpSessionType::EBgp) => true,
+            // if self is the client in the session with the peer, then the route is exported
             (_, BgpSessionType::IBgpClient) => true,
             _ => false,
         })
