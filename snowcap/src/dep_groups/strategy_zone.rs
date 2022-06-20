@@ -1,71 +1,69 @@
+use crate::netsim::config::ConfigModifier;
 use crate::netsim::{Network, RouterId, NetworkDevice, BgpSessionType};
 use crate::netsim::router::Router;
 use std::collections::{HashSet, HashMap};
-use std::thread::current;
+
+type Zone = HashSet<RouterId>;
 
 /// For each non-route-reflector internal device, find the zone it belongs to
 /// returned in a HashMap, key is the internal router's id, value is the associated zone
-fn zone_partition(net: &Network) -> HashMap<RouterId, HashSet<RouterId>> {
-    let mut zones = HashMap::<RouterId, HashSet<RouterId>>::new();
+fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
+    let mut zones = HashMap::<RouterId, Zone>::new();
     let router_ids = net.get_routers();
     'outer: for id in &router_ids {
-        // valid only when all its sessions are IBgpPeer (self is not a route reflector nor a boundary router)
-        // println!("{:?}: {:?}", id, &router.bgp_sessions);
         let router = net.get_device(*id).unwrap_internal();
+
+        // Determine if the current router qualifies as the endpoint of a zone
         for (peer_id, session_type) in &router.bgp_sessions {
             match *session_type {
-                // Bug exists here
-                // Because of the implementation of snowcap, examining the BGP sessions alone cannot determine if
-                // a router can further propagate a BGP advertisement
+                // Only the router that is not a route reflector nor a boundary router can be added
                 BgpSessionType::EBgp => continue 'outer,
                 BgpSessionType::IBgpPeer => {
                     let peer_router = net.get_device(*peer_id).unwrap_internal();
                     // if my peer router's session type is iBGP client, then I am a route reflector
-                    if let BgpSessionType::IBgpClient = peer_router.bgp_sessions[id] {
+                    if BgpSessionType::IBgpClient == peer_router.bgp_sessions[id] {
                         continue 'outer;
                     }
                 }
                 _ => {}
             }
         }
-        // store the next level in a fifo
+
+        // Runs a BFS to identify parents, store the next level in a vector (queue)
         let mut level = vec![*id];
-        let mut zone = HashSet::<RouterId>::new();
-        // evaluates only when it is an internal device
+        let mut zone = Zone::new();
         while level.len() != 0 {
             let current_id = level.remove(0);
             if !zone.contains(&current_id) {
                 let current_router = net.get_device(current_id).unwrap_internal();
                 zone.insert(current_id);
-                // determine if the current router is a boundary router
-                let is_boundary = current_router.bgp_sessions
-                    .iter()
-                    .map(|(_, session)| *session == BgpSessionType::EBgp)
-                    .fold(false, |acc, x| acc | x);
-                // Stop if reaches a boundary router
-                if !is_boundary {
-                    // add all IBgpPeers
-                    for (peer_id, session) in &current_router.bgp_sessions {
-                        match *session {
-                            BgpSessionType::IBgpClient => level.push(*peer_id),
-                            BgpSessionType::IBgpPeer => {
-                                // println!("{}, {}", net.get_router_name(current_id).unwrap(), net.get_router_name(*peer_id).unwrap());
-                                // first ensure that this router is not a client of the current router
-                                let peer_router = net.get_device(*peer_id).unwrap_internal();
-                                // search through the bgp sessions of the peer and find if the peer router is a client of another router that is not self
-                                let is_other_client = peer_router.bgp_sessions
-                                    .iter()
-                                    .map(|(i, s)| (*i != current_id) && (*s == BgpSessionType::IBgpClient))
-                                    .fold(false, |acc, x| (acc | x));
-                                let is_current_client = peer_router.bgp_sessions[&current_id] == BgpSessionType::IBgpClient;
-                                if !is_current_client && is_other_client {
-                                    level.push(*peer_id);
-                                }
+                
+                // Determine if any neighboring routers can be included in the zone
+                for (peer_id, session) in &current_router.bgp_sessions {
+                    match *session {
+                        // Current router is the client of its route reflector peer
+                        BgpSessionType::IBgpClient => level.push(*peer_id),
+                        // Current router is a peer of the peer
+                        // Peer is a valid zone router iff it is a boundary router or a route reflector
+                        BgpSessionType::IBgpPeer => {
+                            let peer_router = net.get_device(*peer_id).unwrap_internal();
+                            // Search through the bgp sessions of the peer and find if the peer router is a client
+                            // of another router that is not the current router, or a boundary router
+                            let is_other_client = peer_router.bgp_sessions
+                                .iter()
+                                .map(|(i, s)| 
+                                    (*i != current_id) && ((*s == BgpSessionType::IBgpClient) || (*s == BgpSessionType::EBgp)))
+                                .fold(false, |acc, x| (acc | x));
+                            // Determine if the peer router is a client of the current router
+                            let is_current_client = peer_router.bgp_sessions[&current_id] == BgpSessionType::IBgpClient;
+                            if !is_current_client && is_other_client {
+                                level.push(*peer_id);
                             }
-                            _ => {}
                         }
+                        _ => {}
                     }
-                } 
+                }
+                // } 
             }
         }
         // push the current zone into the final collection of zones
@@ -75,7 +73,7 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, HashSet<RouterId>> {
     zones
 }
 
-fn bind_config_to_zone() {
+fn bind_config_to_zone(zones: HashMap<RouterId, Zone>, configs: &Vec<ConfigModifier>) {
 
 }
 
