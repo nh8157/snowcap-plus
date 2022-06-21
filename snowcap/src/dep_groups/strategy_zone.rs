@@ -1,12 +1,35 @@
-use crate::netsim::config::ConfigModifier;
+use crate::netsim::config::{ConfigModifier, ConfigExpr};
 use crate::netsim::{Network, RouterId, NetworkDevice, BgpSessionType};
 use crate::netsim::router::Router;
 use std::collections::{HashSet, HashMap};
 
 type Zone = HashSet<RouterId>;
 
+/// A struct storing the configurations relevant to a zone
+pub struct ZoneConfig<'a> {
+    /// Identifier of the struct, defined by the zone's ending router's id
+    zone_id: RouterId,
+    /// Vector storing configurations relevant to the current zone
+    relevant_configs: Vec<&'a ConfigModifier>,
+}
+
+impl<'a> ZoneConfig<'a> {
+    pub fn new(id: RouterId) -> ZoneConfig<'a> {
+        Self {
+            zone_id: id,
+            relevant_configs: vec![]
+        }
+    }
+
+    pub fn add(&mut self, config: &'a ConfigModifier) {
+        self.relevant_configs.push(config);
+    }
+}
+
 /// For each non-route-reflector internal device, find the zone it belongs to
 /// returned in a HashMap, key is the internal router's id, value is the associated zone
+// In the future can be modified to any router that maintains reachability conditions
+// Issue: do we need a better representation for the zone? (maybe use a dag?)
 fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
     let mut zones = HashMap::<RouterId, Zone>::new();
     let router_ids = net.get_routers();
@@ -73,10 +96,52 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
     zones
 }
 
-fn bind_config_to_zone(zones: HashMap<RouterId, Zone>, configs: &Vec<ConfigModifier>) {
-
+fn bind_config_to_zone(zones: &HashMap<RouterId, Zone>, configs: &Vec<ConfigModifier>) {
+    let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
+    for (zid, z) in zones {
+        let mut zone_config = ZoneConfig::new(*zid);
+        for config in configs {
+            match config {
+                ConfigModifier::Insert(c) | ConfigModifier::Remove(c) => {
+                    // Only implement zone partitioning for BGP Session configurations
+                    if let ConfigExpr::BgpSession { 
+                        source: source, target: target, session_type: session 
+                    } = c {
+                        // Test if both routers are in zone
+                        let routers_in_zone = (z.contains(source), z.contains(target));
+                        match routers_in_zone {
+                            // both routers are in the zone
+                            (true, true) => zone_config.add(config),
+                            // only the source router is in the zone and is a client, or is an eBGP
+                            (true, false) if *session == BgpSessionType::IBgpClient || *session == BgpSessionType::EBgp => {
+                                zone_config.add(config);
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+                ConfigModifier::Update {from: c1, to: c2 } => {
+                    match (c1, c2) {
+                        (
+                            ConfigExpr::BgpSession { source: s1, target: t1, session_type: session1 },
+                            ConfigExpr::BgpSession { source: s2, target: t2, session_type: session2 }
+                        ) => {
+                            let routers_in_zone = (z.contains(s1), z.contains(t1));
+                            match routers_in_zone {
+                                (true, true) => zone_config.add(config),
+                                (true, false) if *session1 == BgpSessionType::IBgpClient || *session2 == BgpSessionType::IBgpClient => {
+                                    zone_config.add(config);
+                                },
+                                _ => {}
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 }
-
 fn zone_pretty_print(net: &Network, map: &HashMap<RouterId, HashSet<RouterId>>) {
     for (id, set) in map {
         let router_name = net.get_router_name(*id).unwrap();
