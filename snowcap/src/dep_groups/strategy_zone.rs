@@ -1,16 +1,17 @@
-use crate::netsim::config::{ConfigModifier, ConfigExpr};
+use crate::netsim::config::{ConfigModifier, ConfigExpr, ConfigPatch};
 use crate::netsim::{Network, RouterId, NetworkDevice, BgpSessionType};
 use crate::netsim::router::Router;
 use std::collections::{HashSet, HashMap};
 
 type Zone = HashSet<RouterId>;
 
+#[derive(Debug, Clone)]
 /// A struct storing the configurations relevant to a zone
 pub struct ZoneConfig<'a> {
     /// Identifier of the struct, defined by the zone's ending router's id
-    zone_id: RouterId,
+    pub zone_id: RouterId,
     /// Vector storing configurations relevant to the current zone
-    relevant_configs: Vec<&'a ConfigModifier>,
+    pub relevant_configs: Vec<&'a ConfigModifier>,
 }
 
 impl<'a> ZoneConfig<'a> {
@@ -42,9 +43,9 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
                 // Only the router that is not a route reflector nor a boundary router can be added
                 BgpSessionType::EBgp => continue 'outer,
                 BgpSessionType::IBgpPeer => {
-                    let peer_router = net.get_device(*peer_id).unwrap_internal();
-                    // if my peer router's session type is iBGP client, then I am a route reflector
-                    if BgpSessionType::IBgpClient == peer_router.bgp_sessions[id] {
+                    // if my peer router is my iBGP client, then I am a route reflector
+                    // thus cannot be in a zone
+                    if is_self_client(net, id, peer_id) {
                         continue 'outer;
                     }
                 }
@@ -60,7 +61,6 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
             if !zone.contains(&current_id) {
                 let current_router = net.get_device(current_id).unwrap_internal();
                 zone.insert(current_id);
-                
                 // Determine if any neighboring routers can be included in the zone
                 for (peer_id, session) in &current_router.bgp_sessions {
                     match *session {
@@ -69,17 +69,8 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
                         // Current router is a peer of the peer
                         // Peer is a valid zone router iff it is a boundary router or a route reflector
                         BgpSessionType::IBgpPeer => {
-                            let peer_router = net.get_device(*peer_id).unwrap_internal();
-                            // Search through the bgp sessions of the peer and find if the peer router is a client
-                            // of another router that is not the current router, or a boundary router
-                            let is_other_client = peer_router.bgp_sessions
-                                .iter()
-                                .map(|(i, s)| 
-                                    (*i != current_id) && ((*s == BgpSessionType::IBgpClient) || (*s == BgpSessionType::EBgp)))
-                                .fold(false, |acc, x| (acc | x));
                             // Determine if the peer router is a client of the current router
-                            let is_current_client = peer_router.bgp_sessions[&current_id] == BgpSessionType::IBgpClient;
-                            if !is_current_client && is_other_client {
+                            if is_client_or_boundary(net, peer_id) && !is_self_client(net, &current_id, peer_id) {
                                 level.push(*peer_id);
                             }
                         }
@@ -96,9 +87,11 @@ fn zone_partition(net: &Network) -> HashMap<RouterId, Zone> {
     zones
 }
 
-fn bind_config_to_zone(zones: &HashMap<RouterId, Zone>, configs: &Vec<ConfigModifier>) {
+fn bind_config_to_zone<'a>(net: &Network, zones: &'a HashMap<RouterId, Zone>, patch: &'a ConfigPatch) -> Vec<ZoneConfig<'a>> {
+    let configs = &patch.modifiers;
     let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
     for (zid, z) in zones {
+        println!("{:?}", z);
         let mut zone_config = ZoneConfig::new(*zid);
         for config in configs {
             match config {
@@ -109,12 +102,23 @@ fn bind_config_to_zone(zones: &HashMap<RouterId, Zone>, configs: &Vec<ConfigModi
                     } = c {
                         // Test if both routers are in zone
                         let routers_in_zone = (z.contains(source), z.contains(target));
+                        println!("{:?}", config);
                         match routers_in_zone {
                             // both routers are in the zone
-                            (true, true) => zone_config.add(config),
-                            // only the source router is in the zone and is a client, or is an eBGP
-                            (true, false) if *session == BgpSessionType::IBgpClient || *session == BgpSessionType::EBgp => {
+                            (true, true) => {
                                 zone_config.add(config);
+                            },
+                            (true, false) => {
+                                // if the source router is in the zone and is a client, or is an eBGP
+                                if *session == BgpSessionType::IBgpClient || *session == BgpSessionType::EBgp {
+                                    zone_config.add(config);
+                                } else {
+                                    // or the target router is a route reflector/boundary router
+                                    if is_client_or_boundary(net, target) && !is_self_client(net, source, target) {
+                                        zone_config.add(config);
+                                    }
+                                }
+
                             },
                             _ => {}
                         }
@@ -140,8 +144,28 @@ fn bind_config_to_zone(zones: &HashMap<RouterId, Zone>, configs: &Vec<ConfigModi
                 }
             }
         }
+        zone_configs.push(zone_config);
     }
+    zone_configs
 }
+
+fn is_client_or_boundary(net: &Network, rid: &RouterId) -> bool {
+    let router = net.get_device(*rid).unwrap_internal();
+    let result = router.bgp_sessions
+        .iter()
+        .map(|(id, session)| (*session == BgpSessionType::EBgp) || (*session == BgpSessionType::IBgpClient))
+        .fold(false, |acc, x| (acc | x));
+    result
+}
+
+fn is_self_client(net: &Network, self_id: &RouterId, other_id: &RouterId) -> bool {
+    let other_router = net.get_device(*other_id).unwrap_internal();
+    if !other_router.bgp_sessions.contains_key(self_id) {
+        return false
+    }
+    other_router.bgp_sessions[self_id] == BgpSessionType::IBgpClient
+}
+
 fn zone_pretty_print(net: &Network, map: &HashMap<RouterId, HashSet<RouterId>>) {
     for (id, set) in map {
         let router_name = net.get_router_name(*id).unwrap();
@@ -150,6 +174,16 @@ fn zone_pretty_print(net: &Network, map: &HashMap<RouterId, HashSet<RouterId>>) 
             let parent_router_name = net.get_router_name(*n).unwrap();
             println!("\t{}", parent_router_name);
         })
+    }
+}
+
+fn zone_config_pretty_print(net: &Network, zone_configs: &Vec<ZoneConfig>) {
+    for z in zone_configs {
+        let name = net.get_router_name(z.zone_id).unwrap();
+        println!("{}", name);
+        for c in &z.relevant_configs {
+            println!("\t{:?}", *c);
+        }
     }
 }
 
@@ -183,4 +217,55 @@ mod test {
         // println!("{:?}", map);
         strategy_zone::zone_pretty_print(&net, &map);
     }
+
+    #[test]
+    fn test_abilene_net_partition() {
+        let net= example_networks::AbileneNetwork::net(0);
+        let map = strategy_zone::zone_partition(&net);
+        strategy_zone::zone_pretty_print(&net, &map);
+    }
+    #[test]
+    fn test_firewall_net_config_binding() {
+        let net = example_networks::FirewallNet::net(0);
+        let init_config = example_networks::FirewallNet::initial_config(&net, 0);
+        let final_config = example_networks::FirewallNet::final_config(&net, 0);
+        let patch = init_config.get_diff(&final_config);
+        println!("{:?}", patch);
+        let zones = strategy_zone::zone_partition(&net);
+        let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
+        println!("{:?}", zone_configs);
+    }
+
+    #[test]
+    fn test_bipartite_net_config_binding() {
+        let net = example_networks::BipartiteGadget::<Repetition10>::net(2);
+        let init_config = example_networks::BipartiteGadget::<Repetition10>::initial_config(&net, 2);
+        let final_config = example_networks::BipartiteGadget::<Repetition10>::final_config(&net, 2);
+        let patch = init_config.get_diff(&final_config);
+        println!("{:?}", patch);
+        let zones = strategy_zone::zone_partition(&net);
+        println!("Reporting configuration bindings");
+        let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
+        // println!("{:?}", zone_configs);
+        strategy_zone::zone_config_pretty_print(&net, &zone_configs);
+    }
+
+    #[test]
+    fn test_chain_gadget_config_binding() {
+        let net = example_networks::ChainGadgetLegacy::<Repetition10>::net(0);
+        let map = strategy_zone::zone_partition(&net);
+        println!("{:?}", map);
+        // strategy_zone::zone_pretty_print(&net, &map);
+        let init_config = example_networks::ChainGadgetLegacy::<Repetition10>::initial_config(&net, 0);
+        let final_config = example_networks::ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
+        let patch = init_config.get_diff(&final_config);
+        
+        println!("{:?}", patch);
+        let zones = strategy_zone::zone_partition(&net);
+        println!("Reporting configuration bindings");
+        let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
+        // println!("{:?}", zone_configs);
+        strategy_zone::zone_config_pretty_print(&net, &zone_configs);
+    }
+
 }
