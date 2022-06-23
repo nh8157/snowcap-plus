@@ -3,6 +3,8 @@ use crate::netsim::{Network, RouterId, NetworkDevice, BgpSessionType};
 use crate::netsim::router::Router;
 use std::collections::{HashSet, HashMap};
 
+#[allow(unused_variables, unused_imports)]
+
 type Zone = HashSet<RouterId>;
 
 #[derive(Debug, Clone)]
@@ -98,7 +100,7 @@ fn bind_config_to_zone<'a>(net: &Network, zones: &'a HashMap<RouterId, Zone>, pa
                 ConfigModifier::Insert(c) | ConfigModifier::Remove(c) => {
                     // Only implement zone partitioning for BGP Session configurations
                     if let ConfigExpr::BgpSession { 
-                        source: source, target: target, session_type: session 
+                        source, target, session_type
                     } = c {
                         // Test if both routers are in zone
                         let routers_in_zone = (z.contains(source), z.contains(target));
@@ -110,7 +112,7 @@ fn bind_config_to_zone<'a>(net: &Network, zones: &'a HashMap<RouterId, Zone>, pa
                             },
                             (true, false) => {
                                 // if the source router is in the zone and is a client, or is an eBGP
-                                if *session == BgpSessionType::IBgpClient || *session == BgpSessionType::EBgp {
+                                if *session_type == BgpSessionType::IBgpClient || *session_type == BgpSessionType::EBgp {
                                     zone_config.add(config);
                                 } else {
                                     // or the target router is a route reflector/boundary router
@@ -122,13 +124,19 @@ fn bind_config_to_zone<'a>(net: &Network, zones: &'a HashMap<RouterId, Zone>, pa
                             },
                             _ => {}
                         }
+                    } else if let ConfigExpr::BgpRouteMap { 
+                        router, direction: _, map : _
+                    } = c {
+                        if z.contains(router) {
+                            zone_config.add(config);
+                        }
                     }
                 }
                 ConfigModifier::Update {from: c1, to: c2 } => {
                     match (c1, c2) {
                         (
                             ConfigExpr::BgpSession { source: s1, target: t1, session_type: session1 },
-                            ConfigExpr::BgpSession { source: s2, target: t2, session_type: session2 }
+                            ConfigExpr::BgpSession { source: _, target: _, session_type: session2 }
                         ) => {
                             let routers_in_zone = (z.contains(s1), z.contains(t1));
                             match routers_in_zone {
@@ -139,6 +147,14 @@ fn bind_config_to_zone<'a>(net: &Network, zones: &'a HashMap<RouterId, Zone>, pa
                                 _ => {}
                             }
                         },
+                        (
+                            ConfigExpr::BgpRouteMap { router, direction: _, map: _ },
+                            ConfigExpr::BgpRouteMap { router: _, direction: _, map: _ }
+                        ) => {
+                            if z.contains(router) {
+                                zone_config.add(config);
+                            }
+                        }
                         _ => {}
                     }
                 }
