@@ -238,8 +238,13 @@ mod test {
     fn test_abilene_net_partition() {
         let net= example_networks::AbileneNetwork::net(0);
         let map = strategy_zone::zone_partition(&net);
+        let init_config = example_networks::AbileneNetwork::initial_config(&net, 0);
+        let final_config = example_networks::AbileneNetwork::final_config(&net, 0);
+        let diff = init_config.get_diff(&final_config);
+        println!("{:?}", diff);
         strategy_zone::zone_pretty_print(&net, &map);
     }
+
     #[test]
     fn test_firewall_net_config_binding() {
         let net = example_networks::FirewallNet::net(0);
