@@ -8,6 +8,7 @@ use daggy::{Children, Dag, Parents};
 use itertools::Itertools;
 use log::error;
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::time::Duration;
 
 #[allow(unused_variables, unused_imports)]
@@ -97,21 +98,41 @@ impl StrategyZone {
         match hard_policy {
             Condition::Reachable(r, p, _) | Condition::NotReachable(r, p) => {
                 let (before_path, after_path) =
-                    self.extract_path_for_router(*r, *p, before_state, after_state);
+                    self.extract_paths_for_router(*r, *p, before_state, after_state);
                 // segment routers on new route and old route into different zones
-                for b in 0..before_path.len() {
-                    
-                }
-                for a in 0..after_path.len() {
-
-                }
+                let before_zones = StrategyZone::segment_path(map, &before_path);
+                let after_zones = StrategyZone::segment_path(map, &after_path);
+                // create a new set of invariances according to these zones
             }
             _ => {}
         }
         Ok((vec![], vec![]))
     }
 
-    fn extract_path_for_router(
+    fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Vec<Vec<RouterId>> {
+        let mut zones = Vec::<Vec<RouterId>>::new();
+        let mut cached_set = HashSet::<&RouterId>::new();
+        for b in 0..path.len() {
+            if b > 0 {
+                // let set1: HashSet<_> = map.get(&before_path[b - 1]).unwrap().iter().collect();
+                let set2: HashSet<_> = map.get(&path[b]).unwrap().iter().collect();
+                let inter = cached_set.intersection(&set2);
+                if inter.last().is_none() {
+                    // if there is no intersection, then the router must belong to a different zone
+                    zones.push(vec![]);
+                }
+                zones.last_mut().unwrap().push(path[b]);
+                cached_set = set2;
+            } else {
+                // at the first router
+                zones.push(vec![path[b]]);
+                cached_set = map.get(&path[b]).unwrap().iter().collect();
+            }
+        }
+        zones
+    }
+
+    fn extract_paths_for_router(
         &self,
         router: RouterId,
         prefix: Prefix,
@@ -210,7 +231,7 @@ impl StrategyZone {
     }
 
     fn bind_config_to_zone<'a>(&'a self, mut zones: HashMap<RouterId, Zone<'a>>) -> HashMap<RouterId, Zone>{
-        let net = &self.net;
+        // let net = &self.net;
         let configs = &self.modifiers;
         // let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
         for (_, z) in &mut zones {
@@ -361,90 +382,125 @@ impl StrategyZone {
 
 #[cfg(test)]
 mod test {
-    use crate::dep_groups::strategy_zone;
+    use std::collections::HashMap;
+    use std::vec;
+    use crate::netsim::RouterId;
+    use crate::dep_groups::strategy_zone::{ZoneId, Zone, StrategyZone};
     use crate::example_networks::repetitions::{Repetition10, Repetition5};
-    use crate::example_networks::{self, ChainGadgetLegacy, ExampleNetwork};
+    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, FirewallNet, AbileneNetwork, BipartiteGadget};
     use crate::netsim::Network;
+    use crate::strategies::StrategyDAG;
+    use petgraph::prelude::NodeIndex;
 
     #[test]
     fn test_chain_gadget_partition() {
-        let net = example_networks::ChainGadgetLegacy::<Repetition10>::net(0);
-        let map = strategy_zone::zone_partition(&net);
-        // println!("{:?}", map);
-        strategy_zone::zone_pretty_print(&net, &map);
+        let net = ChainGadgetLegacy::<Repetition10>::net(0);
+        // let map = strategy_zone::zone_partition(&net);
+        // // println!("{:?}", map);
+        // strategy_zone::zone_pretty_print(&net, &map);
     }
 
     #[test]
     fn test_bipartite_gadget_partition() {
-        let net = example_networks::BipartiteGadget::<Repetition5>::net(2);
-        let map = strategy_zone::zone_partition(&net);
-        // println!("{:?}", map);
-        strategy_zone::zone_pretty_print(&net, &map);
+        let net = BipartiteGadget::<Repetition5>::net(2);
+        // let map = strategy_zone::zone_partition(&net);
+        // // println!("{:?}", map);
+        // strategy_zone::zone_pretty_print(&net, &map);
     }
 
     #[test]
     fn test_firewall_net_partition() {
-        let net = example_networks::FirewallNet::net(0);
-        let map = strategy_zone::zone_partition(&net);
-        // println!("{:?}", map);
-        strategy_zone::zone_pretty_print(&net, &map);
+        let net = FirewallNet::net(0);
+        // let map = strategy_zone::zone_partition(&net);
+        // // println!("{:?}", map);
+        // strategy_zone::zone_pretty_print(&net, &map);
     }
 
     #[test]
     fn test_abilene_net_partition() {
-        let net = example_networks::AbileneNetwork::net(0);
-        let map = strategy_zone::zone_partition(&net);
-        let init_config = example_networks::AbileneNetwork::initial_config(&net, 0);
-        let final_config = example_networks::AbileneNetwork::final_config(&net, 0);
-        let diff = init_config.get_diff(&final_config);
-        println!("{:?}", diff);
-        strategy_zone::zone_pretty_print(&net, &map);
+        let net = AbileneNetwork::net(0);
+        // let map = strategy_zone::zone_partition(&net);
+        // let init_config = example_networks::AbileneNetwork::initial_config(&net, 0);
+        // let final_config = example_networks::AbileneNetwork::final_config(&net, 0);
+        // let diff = init_config.get_diff(&final_config);
+        // println!("{:?}", diff);
+        // strategy_zone::zone_pretty_print(&net, &map);
     }
 
     #[test]
     fn test_firewall_net_config_binding() {
-        let net = example_networks::FirewallNet::net(0);
-        let init_config = example_networks::FirewallNet::initial_config(&net, 0);
-        let final_config = example_networks::FirewallNet::final_config(&net, 0);
-        let patch = init_config.get_diff(&final_config);
-        println!("{:?}", patch);
-        let zones = strategy_zone::zone_partition(&net);
-        strategy_zone::bind_config_to_zone(&net, &mut zones, &patch);
-        println!("{:?}", zone_configs);
+        // let net = example_networks::FirewallNet::net(0);
+        // let init_config = example_networks::FirewallNet::initial_config(&net, 0);
+        // let final_config = example_networks::FirewallNet::final_config(&net, 0);
+        // let patch = init_config.get_diff(&final_config);
+        // println!("{:?}", patch);
+        // let zones = strategy_zone::zone_partition(&net);
+        // strategy_zone::bind_config_to_zone(&net, &mut zones, &patch);
+        // println!("{:?}", zone_configs);
     }
 
     #[test]
     fn test_bipartite_net_config_binding() {
-        let net = example_networks::BipartiteGadget::<Repetition10>::net(2);
-        let init_config =
-            example_networks::BipartiteGadget::<Repetition10>::initial_config(&net, 2);
-        let final_config = example_networks::BipartiteGadget::<Repetition10>::final_config(&net, 2);
-        let patch = init_config.get_diff(&final_config);
-        println!("{:?}", patch);
-        let zones = strategy_zone::zone_partition(&net);
-        println!("Reporting configuration bindings");
-        let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
-        // println!("{:?}", zone_configs);
-        strategy_zone::zone_config_pretty_print(&net, &zone_configs);
+        // let net = example_networks::BipartiteGadget::<Repetition10>::net(2);
+        // let init_config =
+        //     example_networks::BipartiteGadget::<Repetition10>::initial_config(&net, 2);
+        // let final_config = example_networks::BipartiteGadget::<Repetition10>::final_config(&net, 2);
+        // let patch = init_config.get_diff(&final_config);
+        // println!("{:?}", patch);
+        // let zones = strategy_zone::zone_partition(&net);
+        // println!("Reporting configuration bindings");
+        // let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
+        // // println!("{:?}", zone_configs);
+        // strategy_zone::zone_config_pretty_print(&net, &zone_configs);
     }
 
     #[test]
     fn test_chain_gadget_config_binding() {
-        let net = example_networks::ChainGadgetLegacy::<Repetition10>::net(0);
-        let map = strategy_zone::zone_partition(&net);
-        println!("{:?}", map);
-        // strategy_zone::zone_pretty_print(&net, &map);
-        let init_config =
-            example_networks::ChainGadgetLegacy::<Repetition10>::initial_config(&net, 0);
-        let final_config =
-            example_networks::ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
-        let patch = init_config.get_diff(&final_config);
+        // let net = example_networks::ChainGadgetLegacy::<Repetition10>::net(0);
+        // let map = strategy_zone::zone_partition(&net);
+        // println!("{:?}", map);
+        // // strategy_zone::zone_pretty_print(&net, &map);
+        // let init_config =
+        //     example_networks::ChainGadgetLegacy::<Repetition10>::initial_config(&net, 0);
+        // let final_config =
+        //     example_networks::ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
+        // let patch = init_config.get_diff(&final_config);
 
-        println!("{:?}", patch);
-        let zones = strategy_zone::zone_partition(&net);
-        println!("Reporting configuration bindings");
-        let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
-        // println!("{:?}", zone_configs);
-        strategy_zone::zone_config_pretty_print(&net, &zone_configs);
+        // println!("{:?}", patch);
+        // let zones = strategy_zone::zone_partition(&net);
+        // println!("Reporting configuration bindings");
+        // let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
+        // // println!("{:?}", zone_configs);
+        // strategy_zone::zone_config_pretty_print(&net, &zone_configs);
+    }
+
+    #[test]
+    fn test_segment_path() {
+        let mut map = HashMap::<RouterId, Vec<ZoneId>>::new();
+        let b0 = NodeIndex::new(0);
+        let b1 = NodeIndex::new(1);
+        let r0 = NodeIndex::new(2);
+        let r1 = NodeIndex::new(3);
+        let t0 = NodeIndex::new(4);
+        let t1 = NodeIndex::new(5);
+        map.insert(b0, vec![t0]);
+        map.insert(b1, vec![t0, t1]);
+        map.insert(r0, vec![t0]);
+        map.insert(r1, vec![t1]);
+        map.insert(t0, vec![t0]);
+        map.insert(t1, vec![t1]);
+
+        let path = vec![t1, t0, b0];
+        let path2 = vec![t1, b1];
+        let path3 = vec![r0, r1, b0];
+        // let path4 
+
+        let zn = StrategyZone::segment_path(&map, &path3);
+        println!("{:?}", &zn);
+
+        assert_eq!(StrategyZone::segment_path(&map, &path), vec![vec![t1], vec![t0, b0]]);
+        assert_eq!(StrategyZone::segment_path(&map, &path2), vec![vec![t1, b1]]);
+        assert_eq!(StrategyZone::segment_path(&map, &path3), vec![vec![r0], vec![r1], vec![b0]]);
+        // assert_eq!(StrategyZone::segment_path(&map, &path4))
     }
 }
