@@ -22,10 +22,12 @@
 //! agnostic to wether we try to optimize for soft-policies, or only consider hard-policy.
 
 use crate::hard_policies::{HardPolicy, PolicyError, WatchErrors};
+use crate::dep_groups::strategy_zone::{ZoneId, Zone};
 use crate::netsim::config::ConfigModifier;
-use crate::netsim::{printer, Network, NetworkError};
+use crate::netsim::{printer, Network, NetworkError, RouterId, Prefix, ForwardingState};
 use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
+use std::collections::{HashSet, HashMap};
 
 use log::*;
 use std::time::{Duration, SystemTime, Instant};
@@ -673,4 +675,53 @@ fn generate_watch_errors(hard_policy: &Option<HardPolicy>) -> WatchErrors {
         Some(hard_policy) => hard_policy.get_watch_errors(),
         None => (Vec::new(), vec![Some(PolicyError::NoConvergence)]),
     }
+}
+
+pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Vec<Vec<RouterId>> {
+    let mut zones = Vec::<Vec<RouterId>>::new();
+    let mut cached_set = HashSet::<&RouterId>::new();
+    // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
+    let empty: Vec<RouterId> = vec![];
+    for b in 0..(path.len() - 1) {
+        if b > 0 {
+            // get the current router's zone
+            let set2: HashSet<_> = map.get(&path[b]).unwrap_or(&empty).iter().collect();
+            // println!("{:?}", &set2);
+            let inter = cached_set.intersection(&set2);
+            if inter.last().is_none() {
+                // if there is no intersection, then the router must belong to a different zone
+                zones.push(vec![]);
+            }
+            zones.last_mut().unwrap().push(path[b]);
+            cached_set = set2;
+        } else {
+            // at the first router
+            zones.push(vec![path[b]]);
+            cached_set = map.get(&path[b]).unwrap_or(&empty).iter().collect();
+        }
+    }
+    zones
+}
+
+pub fn extract_paths_for_router(
+    router: RouterId,
+    prefix: Prefix,
+    before_state: &mut ForwardingState,
+    after_state: &mut ForwardingState,
+) -> (Vec<RouterId>, Vec<RouterId>) {
+    (
+        before_state.get_route(router, prefix).unwrap_or(vec![]),
+        after_state.get_route(router, prefix).unwrap_or(vec![]),
+    )
+}
+
+pub(crate) fn zone_into_map(zone: &HashMap<RouterId, Zone>) -> HashMap<RouterId, Vec<ZoneId>> {
+    let mut map = HashMap::<RouterId, Vec<ZoneId>>::new();
+    for z in zone.values() {
+        z.routers.iter().for_each(|r| {
+            let ptr = map.entry(*r).or_insert(vec![]);
+            ptr.push(z.id);
+        });
+    }
+    map
 }

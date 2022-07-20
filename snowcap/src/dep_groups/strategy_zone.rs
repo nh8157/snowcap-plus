@@ -4,6 +4,7 @@ use crate::netsim::router::Router;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkDevice, Prefix, RouterId};
 use crate::strategies::{Strategy, StrategyDAG};
 use crate::{Error, Stopper};
+use crate::dep_groups::utils::*;
 use daggy::{Children, Dag, Parents};
 use itertools::Itertools;
 use log::error;
@@ -13,10 +14,10 @@ use std::time::Duration;
 
 #[allow(unused_variables, unused_imports)]
 
-type ZoneId = RouterId;
+pub type ZoneId = RouterId;
 
 #[derive(Debug, Clone)]
-struct Zone<'a> {
+pub struct Zone<'a> {
     pub id: ZoneId, // each zone is identified by the last router in the zone
     pub routers: HashSet<RouterId>,
     pub configs: Vec<&'a ConfigModifier>,
@@ -76,7 +77,7 @@ impl StrategyDAG for StrategyZone {
         let mut zones = self.zone_partition();
         // println!("{:?}", zones);
         let (mut before_state, mut after_state) = self.get_before_after_states();
-        let map = self.zone_into_map(&zones);
+        let map = zone_into_map(&zones);
         // println!("{:?}", map);
         for p in &self.hard_policy.prop_vars {
             // how are these invariances organized?
@@ -88,93 +89,6 @@ impl StrategyDAG for StrategyZone {
 }
 
 impl StrategyZone {
-    fn split_invariances(
-        &self,
-        hard_policy: &Condition,
-        before_state: &mut ForwardingState,
-        after_state: &mut ForwardingState,
-        map: &HashMap<RouterId, Vec<ZoneId>>,
-    ) -> Result<(Vec<HardPolicy>, Vec<HardPolicy>), Error> {
-        match hard_policy {
-            Condition::Reachable(r, p, _) | Condition::NotReachable(r, p) => {
-                let (before_path, after_path) =
-                    self.extract_paths_for_router(*r, *p, before_state, after_state);
-                // println!("{:?}\n{:?}\n", &before_path, &after_path);
-                // segment routers on new route and old route into different zones
-                // println!("{:?}", &before_path);
-                let before_zones = StrategyZone::segment_path(map, &before_path);
-                let after_zones = StrategyZone::segment_path(map, &after_path);
-                // create a new set of invariances according to these zones
-                println!("{:?}", before_zones);
-            }
-            _ => {}
-        }
-        Ok((vec![], vec![]))
-    }
-
-    fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Vec<Vec<RouterId>> {
-        let mut zones = Vec::<Vec<RouterId>>::new();
-        let mut cached_set = HashSet::<&RouterId>::new();
-        // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
-        let empty: Vec<RouterId> = vec![];
-        for b in 0..(path.len() - 1) {
-            if b > 0 {
-                // get the current router's zone
-                let set2: HashSet<_> = map.get(&path[b]).unwrap_or(&empty).iter().collect();
-                // println!("{:?}", &set2);
-                let inter = cached_set.intersection(&set2);
-                if inter.last().is_none() {
-                    // if there is no intersection, then the router must belong to a different zone
-                    zones.push(vec![]);
-                }
-                zones.last_mut().unwrap().push(path[b]);
-                cached_set = set2;
-            } else {
-                // at the first router
-                zones.push(vec![path[b]]);
-                cached_set = map.get(&path[b]).unwrap_or(&empty).iter().collect();
-            }
-        }
-        zones
-    }
-
-    fn extract_paths_for_router(
-        &self,
-        router: RouterId,
-        prefix: Prefix,
-        before_state: &mut ForwardingState,
-        after_state: &mut ForwardingState,
-    ) -> (Vec<RouterId>, Vec<RouterId>) {
-        (
-            before_state.get_route(router, prefix).unwrap_or(vec![]),
-            after_state.get_route(router, prefix).unwrap_or(vec![]),
-        )
-    }
-
-    fn zone_into_map(&self, zone: &HashMap<RouterId, Zone>) -> HashMap<RouterId, Vec<ZoneId>> {
-        let mut map = HashMap::<RouterId, Vec<ZoneId>>::new();
-        for z in zone.values() {
-            z.routers.iter().for_each(|r| {
-                let ptr = map.entry(*r).or_insert(vec![]);
-                ptr.push(z.id);
-            });
-        }
-        map
-    }
-    
-    fn get_before_after_states(&self) -> (ForwardingState, ForwardingState) {
-        let mut after_net = self.get_after_net();
-        (self.net.get_forwarding_state(), after_net.get_forwarding_state())
-    }
-
-    fn get_after_net(&self) -> Network {
-        let mut after_net = self.net.clone();
-        for c in self.modifiers.iter() {
-            // this may not work for topologies that take into account time (e.g. Difficult gadget)
-            after_net.apply_modifier(c);
-        }
-        after_net
-    }
     fn zone_partition(&self) -> HashMap<RouterId, Zone> {
         let net = &self.net;
         let mut zones = HashMap::<RouterId, Zone>::new();
@@ -315,6 +229,44 @@ impl StrategyZone {
             }
         }
         zones
+    }
+
+    fn split_invariances(
+        &self,
+        hard_policy: &Condition,
+        before_state: &mut ForwardingState,
+        after_state: &mut ForwardingState,
+        map: &HashMap<RouterId, Vec<ZoneId>>,
+    ) -> Result<(Vec<HardPolicy>, Vec<HardPolicy>), Error> {
+        match hard_policy {
+            Condition::Reachable(r, p, _) | Condition::NotReachable(r, p) => {
+                let (before_path, after_path) =
+                    extract_paths_for_router(*r, *p, before_state, after_state);
+                // println!("{:?}\n{:?}\n", &before_path, &after_path);
+                // segment routers on new route and old route into different zones
+                // println!("{:?}", &before_path);
+                let before_zones = segment_path(map, &before_path);
+                let after_zones = segment_path(map, &after_path);
+                // create a new set of invariances according to these zones
+                println!("{:?}", before_zones);
+            }
+            _ => {}
+        }
+        Ok((vec![], vec![]))
+    }
+
+    fn get_before_after_states(&self) -> (ForwardingState, ForwardingState) {
+        let mut after_net = self.get_after_net();
+        (self.net.get_forwarding_state(), after_net.get_forwarding_state())
+    }
+
+    fn get_after_net(&self) -> Network {
+        let mut after_net = self.net.clone();
+        for c in self.modifiers.iter() {
+            // this may not work for topologies that take into account time (e.g. Difficult gadget)
+            after_net.apply_modifier(c);
+        }
+        after_net
     }
 
     fn is_client_or_boundary(&self, rid: &RouterId) -> bool {
