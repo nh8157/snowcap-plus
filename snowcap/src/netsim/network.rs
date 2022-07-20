@@ -545,7 +545,7 @@ impl Network {
     /// Compute and return the current forwarding state.
     pub fn get_forwarding_state(&self) -> ForwardingState {
         // faster access of the forwarding table
-        ForwardingState::from_net_new(self)
+        ForwardingState::from_net(self)
     }
 
     /// Return forwarding state containing IGP comm

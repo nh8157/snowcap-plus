@@ -73,6 +73,7 @@ impl HardPolicy {
         P: Iterator<Item = &'p Prefix> + Clone,
     {
         let prop_vars: Vec<Condition> =
+        // iproduct enumerates all possible combinations of values
             iproduct!(routers, prefixes).map(|(r, p)| Condition::Reachable(*r, *p, None)).collect();
         Self::globally(prop_vars)
     }
