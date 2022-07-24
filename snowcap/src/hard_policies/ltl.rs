@@ -30,7 +30,7 @@ use std::boxed::Box;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::{BitAnd, BitOr, BitXor, Not};
-use std::time::Instant;
+// use std::time::Instant;
 
 /// Type alias for comfortable handling of the watch errors
 pub type WatchErrors = (Vec<usize>, Vec<Option<PolicyError>>);
@@ -106,6 +106,8 @@ impl HardPolicy {
     }
 
     /// Create a new Linear Temporal Logic Hard Policy
+    // The temporal information is encoded in the LTLModel enum, use prop_vars
+    // to index its elements?
     pub fn new(prop_vars: Vec<Condition>, expr: LTLModal) -> Self {
         let reliability = prop_vars
             .iter()
@@ -152,11 +154,10 @@ impl HardPolicy {
         let mut new_error: Vec<Option<PolicyError>> = Vec::with_capacity(self.prop_vars.len());
 
         // check invariance of the network (prop_vars)
-        let start = Instant::now();
+        // let start = Instant::now();
+        
+        // check if each of the conditions still holds
         for v in self.prop_vars.iter() {
-            // iterate through all the policies
-            // writes reachability condition from every node to the external routers
-
             match v.check(state) {
                 Ok(()) => {
                     new_state.push(true);
@@ -168,7 +169,7 @@ impl HardPolicy {
                 }
             }
         }
-        let end = start.elapsed();
+        // let end = start.elapsed();
         // check example input/output
         // Next, we need to check the reliability
         if !self.reliability.is_empty() {
@@ -284,6 +285,8 @@ impl HardPolicy {
         }
 
         // finally, push the changes to the stack
+        // new_state is a mapping between the index of the condition to the status of the condition
+        // in the current state (whether it evaluates to true of false)
         self.history.push(new_state);
         self.error_history.push(new_error);
         Ok(())
@@ -432,6 +435,7 @@ impl HardPolicy {
 pub enum LTLResult {
     T,
     F,
+    // U is invoked when the history is still incomplete, thus cannot check the invariance
     U,
 }
 
@@ -627,6 +631,7 @@ impl LTLOperator for bool {
 }
 
 impl LTLOperator for usize {
+    // check the status at the current index
     fn check(&self, history: &[Vec<bool>]) -> bool {
         history[0][*self]
     }
@@ -667,20 +672,24 @@ where
 fn partial_all<I, F>(iter: I, mut f: F) -> LTLResult
 where
     I: Iterator,
+    // a lambda function that takes an instance I from iterator, returns a LTLResult
     F: FnMut(I::Item) -> LTLResult,
 {
     for elem in iter {
         match f(elem) {
             LTLResult::T => {}
+            // immediately returns if there is a false or undefined
             LTLResult::U => return LTLResult::U,
             LTLResult::F => return LTLResult::F,
         }
     }
+    // loops through every value
     LTLResult::T
 }
 
 /// # Boolean operator of LTL
 #[derive(Debug, Clone)]
+// the level lower is usize or bool
 pub enum LTLBoolean {
     /// Not: $\neg \phi$
     Not(Box<dyn LTLOperator>),
@@ -912,6 +921,7 @@ impl LTLOperator for LTLBoolean {
 #[derive(Debug, Clone)]
 pub enum LTLModal {
     /// $\phi$: $\phi$ holds at the current state.
+    // Any type that has implemented the LTLOperator trait
     Now(Box<dyn LTLOperator>),
     /// $\mathbf{X}\ \phi$: $\phi$ holds at the next state. If the sequence is finished, then
     /// $\mathbf{X} \phi \iff \phi$ is identical to stating that $\phi$ holds now.
@@ -938,9 +948,12 @@ pub enum LTLModal {
 impl LTLOperator for LTLModal {
     fn check(&self, history: &[Vec<bool>]) -> bool {
         match self {
+            // phi and psi are recursively defined
             Self::Now(phi) => phi.check(history),
             Self::Next(phi) => {
                 if history.len() >= 2 {
+                    // if the condition holds from 1 and onwards
+                    // transformed into Now() ?
                     phi.check(&history[1..])
                 } else {
                     phi.check(history)
@@ -948,6 +961,7 @@ impl LTLOperator for LTLModal {
             }
             Self::Finally(phi) => {
                 for i in 0..history.len() {
+                    // if phi holds from time i and onwards
                     if phi.check(&history[i..]) {
                         return true;
                     }
@@ -964,8 +978,10 @@ impl LTLOperator for LTLModal {
             }
             Self::Until(psi, phi) => {
                 for i in 0..history.len() {
+                    // in the previous state, psi was true, phi was not true
                     if phi.check(&history[i..]) {
                         return true;
+                    // phi is not true and psi is not true either
                     } else if !psi.check(&history[i..]) {
                         return false;
                     }
@@ -1096,6 +1112,7 @@ impl LTLOperator for LTLModal {
     ///   are false.
     /// - *Release*($psi$, $phi$): If the expression is True, then create the union of all ways in
     ///   which this expression can become false:
+    /// 
     ///   1. Watch $phi$ at every state before (and including where) $psi$ first holds.
     ///   2. If $phi$ does not hold forever, watch $psi$ at every point where $psi$ holds, while
     ///      (and including where) $phi$ is true
@@ -1369,6 +1386,8 @@ mod test {
 
     use crate as snowcap;
     use snowcap_ltl_parser::ltl;
+
+    use petgraph::prelude::NodeIndex;
 
     const T: bool = true;
     const F: bool = false;
@@ -2047,5 +2066,56 @@ mod test {
         test_watch(x.watch(&vec![vec![T, T, F, F], vec![T, T, T, F], vec![F, F, F, F]]), vec![0, 1, 2]);
         test_watch(x.watch(&vec![vec![T, F, F, F], vec![T, F, T, F], vec![F, F, F, F]]), vec![0, 2]);
         test_watch(x.watch(&vec![vec![T, F, F, F], vec![F, T, T, F], vec![F, F, F, F]]), vec![0, 1, 2]);
+    }
+    #[test]
+    fn check_propositions() {
+        let prop_vars: Vec<Condition> = vec![
+            Condition::Reachable(NodeIndex::new(0), Prefix(0 as u32), None),
+            Condition::Reachable(NodeIndex::new(1), Prefix(0 as u32), None),
+        ];
+        let temporal_modal = LTLModal::Globally(
+            Box::new(
+                LTLBoolean::Or(
+                    (0..prop_vars.len()).map(|x| Box::new(x) as Box<dyn LTLOperator>).collect()
+                )
+            ) as Box<dyn LTLOperator>
+        );
+        let history = vec![vec![true, false]];
+        assert!(temporal_modal.check(&history[..]));
+    }
+
+    #[test]
+    fn check_next() {
+        let ltl = LTLModal::Now(
+            Box::new(
+                LTLBoolean::And(vec![
+                    Box::new(0 as usize) as Box<dyn LTLOperator>,
+                    Box::new(1 as usize) as Box<dyn LTLOperator>,
+                    Box::new(LTLModal::Next(Box::new(2 as usize) as Box<dyn LTLOperator>)),
+                ])
+            )
+        );
+        let history1 = vec![vec![true, true, false], vec![true, true, true]];
+        let history2 = vec![vec![false, false, true], vec![false, false, false]];
+        let history3 = vec![vec![true, true, false], vec![false, false, true]];
+        assert!(ltl.check(&history1[..]));
+        assert_eq!(ltl.check(&history2[..]), false);
+        assert_eq!(ltl.check(&history3[..]), true);
+    }
+
+    #[test]
+    fn check_until() {
+        let ltl = LTLModal::Until(
+            Box::new(0 as usize) as Box<dyn LTLOperator>,
+            Box::new(1 as usize) as Box<dyn LTLOperator>
+        );
+        let history1 = vec![vec![true, true], vec![true, true]];
+        let history2 = vec![vec![true, false], vec![true, false]];
+        let history3 = vec![vec![true, false], vec![false, false]];
+        assert_eq!(ltl.check(&history1[..]), true);
+        assert_eq!(ltl.check(&history2[..]), false);
+        assert_eq!(ltl.partial(&history1[..]), LTLResult::T);
+        assert_eq!(ltl.partial(&history2[..]), LTLResult::U);
+        assert_eq!(ltl.partial(&history3[..]), LTLResult::F);
     }
 }

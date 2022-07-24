@@ -1,19 +1,15 @@
-use itertools::{Itertools, fold};
-use petgraph::csr::NodeIndex;
+use itertools::{Itertools};
 
-use crate::netsim::router::Router;
-use crate::netsim::types::{Destination, Prefix, Zone};
+use crate::netsim::types::{Prefix, Zone};
 use crate::netsim::{Network, RouterId, ForwardingState};
 use crate::netsim::config::{ConfigModifier, Config, ConfigExpr};
-use crate::netsim::config::ConfigExpr::*;
+// use crate::netsim::config::ConfigExpr::*;
 use crate::strategies::StrategyDAG;
-use crate::hard_policies::{HardPolicy, PolicyError, Condition};
-use crate::{Error, Stopper, error};
+use crate::hard_policies::{HardPolicy, Condition};
+use crate::{Error, Stopper};
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::time::{SystemTime, Duration, Instant};
+use std::time::{Duration};
 use log::error;
-use thiserror::Error;
 use daggy::{Dag, Parents, Children};
 use daggy::Walker;
 use std::iter;
@@ -35,7 +31,7 @@ pub struct StrategyParallel {
     // use indexes to identify the location
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
-    stop_time: Option<Duration>
+    _stop_time: Option<Duration>
 }
 
 impl StrategyDAG for StrategyParallel {
@@ -64,7 +60,7 @@ impl StrategyDAG for StrategyParallel {
                 dag_map,
                 modifiers: modifiers,
                 hard_policy: hard_policy,
-                stop_time: time_budget
+                _stop_time: time_budget
             }
         );
         Ok(strategy)
@@ -72,7 +68,7 @@ impl StrategyDAG for StrategyParallel {
 
     fn work(
         &mut self,
-        abort: Stopper
+        _abort: Stopper
     ) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         // create a new network object, apply all configurations
 
@@ -281,7 +277,7 @@ impl StrategyParallel {
         old_route: Vec<RouterId>,
         new_route: Vec<RouterId>,
         modifiers: Vec<&ConfigModifier>,
-        reachability: bool
+        _reachability: bool
     ) -> Option<Vec<Vec<&ConfigModifier>>> {
         // list index represent the order
         let mut order: Vec<Vec<&ConfigModifier>> = vec![vec![], vec![], vec![]];
@@ -345,51 +341,7 @@ impl StrategyParallel {
         }
     }
 
-    // not used anymore
-    fn add_dependencies_dag(
-        &mut self,
-        dependency: Vec<Vec<&ConfigModifier>>
-    ) -> Result<(), Error> {
-        // first check if the critical configuration is in graph
-        let critical_node = self.add_node_get_index(dependency[1][0]);
-        for &c in dependency[0].iter() {
-            // check if c is in the dag
-            let index = self.modifiers.iter().position(|x| x == c).unwrap();
-            if self.dag_map[index].is_none() {
-                // c not in dag
-                let (_, node_index) = self.dag.add_parent(critical_node, 1, c.clone());
-                self.dag_map[index] = Some(node_index);
-            } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
-                // they are parallel to each other
-                // add link from parent to child
-                self.dag.add_edge(self.dag_map[index].unwrap(), critical_node, 1);
-            }
-        }
-        for &c in dependency[2].iter() {
-            let index = self.modifiers.iter().position(|x| x == c).unwrap();
-            if self.dag_map[index].is_none() {
-                // c not in dag
-                let (_, node_index) = self.dag.add_child(critical_node, 1, c.clone());
-                self.dag_map[index] = Some(node_index);
-            } else if !self.is_child(self.dag_map[index].unwrap(), critical_node) && !self.is_child(critical_node, self.dag_map[index].unwrap()) {
-                // they are parallel to each other
-                // add link from parent to child
-                self.dag.add_edge(critical_node, self.dag_map[index].unwrap(), 1);
-            }
-        }
-        Ok(())
-    }
-
-    fn add_node_get_index(&mut self, config: &ConfigModifier) -> daggy::NodeIndex {
-        let index = self.modifiers.iter().position(|x| x == config).unwrap();
-        if self.dag_map[index].is_none() {
-            // critical config not in dag
-            self.dag_map[index] = Some(self.dag.add_node(config.clone()));
-        } 
-        self.dag_map[index].unwrap()
-    }
-
-    fn is_child(&self, parent: daggy::NodeIndex, child: daggy::NodeIndex) -> bool {
+    fn is_child(&self, _parent: daggy::NodeIndex, _child: daggy::NodeIndex) -> bool {
         // let children = self.dag.children(parent.into());
         // for (_, this_child) in children {
         //     if this_child == child {
@@ -400,18 +352,16 @@ impl StrategyParallel {
     }
 
     fn is_relevant_to_reachability(
-        src: RouterId, 
-        dst: Prefix,
+        _src: RouterId, 
+        _dst: Prefix,
         route1: Vec<RouterId>, 
         route2: Vec<RouterId>,
         config: &ConfigModifier
     ) -> bool {
-        // println!("Old route: {:?}", route1);
-        // println!("New route: {:?}", route2);
         match config {
             ConfigModifier::Insert(c) | ConfigModifier::Remove(c) => {
                 match c {
-                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                    ConfigExpr::StaticRoute { router: r1, prefix: _, target: r2 } => {
                         if  route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
                             route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some() {
                                 return true;
@@ -423,14 +373,14 @@ impl StrategyParallel {
             }
             ConfigModifier::Update { from: c1, to: c2 } => {
                 let r1 = match c1 {
-                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                    ConfigExpr::StaticRoute { router: r1, prefix: _, target: r2 } => {
                         route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
                         route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some()
                     }
                     _ => false
                 };
                 let r2 = match c2 {
-                    ConfigExpr::StaticRoute { router: r1, prefix: p, target: r2 } => {
+                    ConfigExpr::StaticRoute { router: r1, prefix: _, target: r2 } => {
                         route1.iter().find(|&&x| x == *r1).is_some() && route1.iter().find(|&&x| x == *r2).is_some() ||
                         route2.iter().find(|&&x| x == *r1).is_some() && route2.iter().find(|&&x| x == *r2).is_some()
                     }
@@ -603,7 +553,6 @@ enum DAGError {
 mod test {
     use crate::dep_groups::strategy_parallel::{StrategyParallel};
     use crate::hard_policies::HardPolicy;
-    use crate::netsim::types::Destination;
     use crate::netsim::config::{Config, ConfigExpr, ConfigModifier};
     use crate::netsim::{Network, RouterId, AsId, Prefix};
     use crate::netsim::BgpSessionType::*;
@@ -614,14 +563,11 @@ mod test {
     use crate::example_networks::ExampleNetwork;
     use crate::Stopper;
     use std::fs::File;
-    use duration_string::DurationString;
     use std::os::unix::prelude::FileExt;
     use std::path::Path;
-    use std::time::{Instant, Duration};
+    use std::time::{Instant};
     use std::collections::HashMap;
-    use std::rc::Rc;
-    use std::cell::{RefCell, Ref};
-    use petgraph::graph::{NodeIndex, Node};
+    use petgraph::graph::{NodeIndex};
     use daggy::Dag;
 
     #[test]

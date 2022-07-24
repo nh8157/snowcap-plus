@@ -26,7 +26,7 @@ use crate::netsim::types::Destination;
 
 use itertools::iproduct;
 use std::fmt;
-use std::time::Instant;
+// use std::time::Instant;
 
 /// Condition that can be checked for either being true or false.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -135,9 +135,9 @@ impl Condition {
         match self {
             // test between every pair of nodes
             Self::Reachable(r, p, c) => {
-                let get_route_start = Instant::now();
+                // let get_route_start = Instant::now();
                 let r_result = fw_state.get_route_new(*r, Destination::BGP(*p));
-                let get_route_end = get_route_start.elapsed();
+                // let get_route_end = get_route_start.elapsed();
                 match r_result {
                     // for every pair of routers in the network
                     Ok(path) => match c {
@@ -165,12 +165,12 @@ impl Condition {
                 println!("Checking IGP reachability {:?} {:?}", r1, r2);
                 let r_result = fw_state.get_route_new(*r1, Destination::IGP(*r2));
                 match r_result {
-                    Ok(path) => match c {
+                    Ok(_)=> match c {
                         // no path condition
                         None => Ok(()),
                         // path condition exists
                         // not yet implemented
-                        Some(cond) => Ok(())
+                        Some(_) => Ok(())
                     },
                     // Err(NetworkError::ForwardingLoop(path)) => {
                     //     Err(PolicyError::ForwardingLoop { path: prepare_loop_path(path), prefix: *p })
@@ -204,7 +204,7 @@ impl Condition {
                     Err(e) => panic!("Unrecoverable error detected: {}", e),
                     Ok(path) => Err(PolicyError::UnallowedPathExists {router: *r1, dest: Destination::IGP(*r2), path}),
                 }
-             }
+            }
             Self::Reliable(_, _, _) => Ok(()),
             Self::TransientPath(_, _, _) => Ok(()),
         }

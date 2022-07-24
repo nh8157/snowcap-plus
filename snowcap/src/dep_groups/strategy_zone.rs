@@ -1,15 +1,12 @@
 use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier, ConfigPatch};
-use crate::netsim::router::Router;
+// use crate::netsim::router::Router;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkDevice, Prefix, RouterId};
 use crate::strategies::{Strategy, StrategyDAG};
 use crate::{Error, Stopper};
 use crate::dep_groups::utils::*;
 use daggy::{Children, Dag, Parents};
-use itertools::Itertools;
-use log::error;
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::time::Duration;
 
 #[allow(unused_variables, unused_imports)]
@@ -74,7 +71,7 @@ impl StrategyDAG for StrategyZone {
     }
 
     fn work(&mut self, abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        let mut zones = self.zone_partition();
+        let zones = self.zone_partition();
         // println!("{:?}", zones);
         let (mut before_state, mut after_state) = self.get_before_after_states();
         let map = zone_into_map(&zones);
@@ -242,13 +239,12 @@ impl StrategyZone {
             Condition::Reachable(r, p, _) | Condition::NotReachable(r, p) => {
                 let (before_path, after_path) =
                     extract_paths_for_router(*r, *p, before_state, after_state);
-                // println!("{:?}\n{:?}\n", &before_path, &after_path);
                 // segment routers on new route and old route into different zones
-                // println!("{:?}", &before_path);
                 let before_zones = segment_path(map, &before_path);
                 let after_zones = segment_path(map, &after_path);
                 // create a new set of invariances according to these zones
                 println!("{:?}", before_zones);
+                println!("{:?}", after_zones);
             }
             _ => {}
         }
@@ -256,7 +252,7 @@ impl StrategyZone {
     }
 
     fn get_before_after_states(&self) -> (ForwardingState, ForwardingState) {
-        let mut after_net = self.get_after_net();
+        let after_net = self.get_after_net();
         (self.net.get_forwarding_state(), after_net.get_forwarding_state())
     }
 
@@ -310,28 +306,6 @@ impl StrategyZone {
     //     }
     // }
 }
-
-// #[derive(Debug, Clone)]
-/// A struct storing the configurations relevant to a zone
-// pub struct ZoneConfig<'a> {
-//     /// Identifier of the struct, defined by the zone's ending router's id
-//     pub zone_id: RouterId,
-//     /// Vector storing configurations relevant to the current zone
-//     pub relevant_configs: Vec<&'a ConfigModifier>,
-// }
-
-// impl<'a> ZoneConfig<'a> {
-//     pub fn new(id: RouterId) -> ZoneConfig<'a> {
-//         Self {
-//             zone_id: id,
-//             relevant_configs: vec![]
-//         }
-//     }
-
-//     pub fn add(&mut self, config: &'a ConfigModifier) {
-//         self.relevant_configs.push(config);
-//     }
-// }
 
 /// For each non-route-reflector internal device, find the zone it belongs to
 /// returned in a HashMap, key is the internal router's id, value is the associated zone

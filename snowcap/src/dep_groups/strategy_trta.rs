@@ -194,9 +194,6 @@ impl Strategy for StrategyTRTA {
     ) -> Result<Box<Self>, Error> {
         // clear the undo stack
         net.clear_undo_stack();
-        for i in &modifiers {
-            // println!("{:?}", i);
-        }
         // check the state
         hard_policy.set_num_mods_if_none(modifiers.len());
         let mut fw_state = net.get_forwarding_state();
@@ -439,7 +436,7 @@ impl StrategyTRTA {
     ) -> Result<usize, usize> {
         assert!(frame.idx < frame.rem_groups.len());
         // this loop checks through every option in the rem_group
-        let mut ctr = 1;
+        let mut _ctr = 1;
         // println!("Checking remaining group");
         for group_pos in frame.idx..frame.rem_groups.len() {
             // println!("In stack loop");
@@ -460,9 +457,9 @@ impl StrategyTRTA {
                 }
                 num_undo += 1;
 
-                let mod_start = Instant::now();
+                // let mod_start = Instant::now();
                 let mod_result = net.apply_modifier(modifier);
-                let mod_end = mod_start.elapsed();
+                // let mod_end = mod_start.elapsed();
                 // println!("\tapply_modifier {:?}", mod_end);
 
                 match mod_result {
@@ -472,21 +469,21 @@ impl StrategyTRTA {
                         // checks whether the order aligns with the policy
                         // println!("\t\tChecking option {} against invariances", ctr);
                         // return Ok(()) or Err
-                        let hard_start = Instant::now();
+                        // let hard_start = Instant::now();
                         hard_policy.step(net, &mut fw_state).expect("cannot check policies!");
-                        let hard_end = hard_start.elapsed();
+                        // let hard_end = hard_start.elapsed();
                         // println!("\t\tChecking invariances {:?}", hard_end);
                         // what does this check function do?
                         if !hard_policy.check() {
-                            ctr += 1;
+                            _ctr += 1;
                             mod_ok = false;
                             break 'apply_group;
                         } else {
-                            ctr += 1;
+                            _ctr += 1;
                         }
                     }
                     _ => {
-                        ctr += 1;
+                        _ctr += 1;
                         mod_ok = false;
                         break 'apply_group;
                     }
@@ -501,11 +498,11 @@ impl StrategyTRTA {
             } else {
                 // undo the hard policy and the network
                 (0..num_undo_policy).for_each(|_| hard_policy.undo());
-                let undo_start = Instant::now();
+                // let undo_start = Instant::now();
                 (0..num_undo).for_each(|_| {
                     net.undo_action().expect("Cannot perform undo!");
                 });
-                let undo_end = undo_start.elapsed();
+                // let undo_end = undo_start.elapsed();
                 // println!("\tUndo actions {:?}", undo_end);
             }
         }
