@@ -103,10 +103,10 @@ pub fn check(
                     }
                 }
             }
-            Condition::ReachableIGP(router1, router2, Some(c)) => {
+            Condition::ReachableIGP(_router1, _router2, Some(_c)) => {
 
             }
-            Condition::ReachableIGP(router1, router2, None) => {
+            Condition::ReachableIGP(_router1, _router2, None) => {
 
             }
             Condition::NotReachable(router, prefix) => {
@@ -138,7 +138,7 @@ pub fn check(
                     }
                 }
             }
-            Condition::NotReachableIGP(router1, router2) => {
+            Condition::NotReachableIGP(_router1, _router2) => {
                 
             }
             Condition::Reliable(_, _, _) => info!("Skipping reliability condition"),

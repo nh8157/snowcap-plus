@@ -298,7 +298,7 @@ pub use condition::{Condition, PathCondition, Waypoint};
 pub use ltl::{HardPolicy, LTLBoolean, LTLModal, LTLOperator, WatchErrors};
 use transient_behavior::TransientStateAnalyzer;
 
-use crate::netsim::{Network, Prefix, RouterId};
+use crate::netsim::{Network, RouterId};
 use crate::netsim::types::Destination;
 //use crate::transient_behavior::TransientError;
 

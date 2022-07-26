@@ -26,7 +26,6 @@ use log::*;
 use petgraph::algo::bellman_ford;
 use std::collections::{hash_map::Iter, HashMap, HashSet};
 use std::iter::FromIterator;
-use std::ops::RangeBounds;
 
 /// Bgp Router
 #[derive(Debug)]
@@ -1194,19 +1193,19 @@ impl Router {
         })
     }
 
-    /// Checks if the router accepts traffic from this sender
-    fn check_access(&self, sender: &RouterId) -> bool {
-        if self.acl_accept.len() > 0 {
-            // white list mode
-            self.acl_accept.contains(sender)
-        } else {
-            // black list mode
-            // if the sender exists in deny
-            // then return false
-            self.acl_deny.contains(sender)^true
-        }
+    // /// Checks if the router accepts traffic from this sender
+    // fn check_access(&self, sender: &RouterId) -> bool {
+    //     if self.acl_accept.len() > 0 {
+    //         // white list mode
+    //         self.acl_accept.contains(sender)
+    //     } else {
+    //         // black list mode
+    //         // if the sender exists in deny
+    //         // then return false
+    //         self.acl_deny.contains(sender)^true
+    //     }
         
-    }
+    // }
 }
 
 #[derive(Debug)]

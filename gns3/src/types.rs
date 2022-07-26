@@ -24,7 +24,7 @@ use std::fmt;
 #[derive(Debug, Deserialize, Clone)]
 pub(crate) struct GNS3ResponseVersion {
     pub version: String,
-    pub local: bool,
+    pub _local: bool,
 }
 
 /// Project Information

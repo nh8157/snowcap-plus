@@ -20,14 +20,14 @@
 //! the state.
 
 use crate::netsim::{Network, NetworkDevice, NetworkError, Prefix, RouterId};
-use crate::netsim::config::{Config, ConfigExpr};
+// use crate::netsim::config::{ConfigExpr};
 use crate::netsim::types::{Destination, ACL};
 use log::*;
 use std::collections::{HashMap, HashSet};
-use std::iter::{repeat, Peekable, FromIterator};
+use std::iter::{repeat, Peekable};
 use std::vec::IntoIter;
 
-use super::router::Router;
+// use super::router::Router;
 
 /// # Forwarding State
 ///
@@ -153,7 +153,7 @@ impl ForwardingState {
             repeat(None).take((num_devices + num_prefixes) * num_devices).collect();
         for rid in 0..num_devices as u32 {
             if let NetworkDevice::InternalRouter(r) = net.get_device(rid.into()) {
-                for (p, pid) in prefixes.iter() {
+                for (p, _) in prefixes.iter() {
                     let idx: usize = get_idx_new(
                         rid as usize,
                         &Destination::BGP(*p),
@@ -554,9 +554,9 @@ impl Iterator for ForwardingStateIterator {
 
 #[cfg(test)]
 mod test {
-    use crate::netsim::config::Config;
+    use crate::netsim::config::{Config, ConfigExpr};
 
-    use super::CacheResult::*;
+    // use super::CacheResult::*;
     use super::*;
     #[test]
     fn test_from_net() {
@@ -595,7 +595,7 @@ mod test {
 
         // let route1 = fw.get_route_new(r1, Destination::IGP(r2));
         let route2 = fw.get_route_new(r0, Destination::IGP(r2));
-        let (r, p) = fw.get_cache(r0, &Destination::IGP(r2)).unwrap();
+        let (_, _) = fw.get_cache(r0, &Destination::IGP(r2)).unwrap();
         let cache = fw.get_cache(r1, &Destination::IGP(r2));
         // assert_eq!(route1, Ok(vec![r1, r2]));
         assert_eq!(route2, Err(NetworkError::AccessDenied(r2)));

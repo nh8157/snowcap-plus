@@ -171,7 +171,7 @@ fn modifier_cost(m: &ConfigModifier, flows: &[Vec<RouterId>]) -> (ModifierGroup,
         ConfigExprKey::BgpRouteMap { router, .. } | ConfigExprKey::StaticRoute { router, .. } => {
             (ModifierGroup::Node, flows.iter().filter(|f| f.contains(&router)).count())
         }
-        ConfigExprKey::AccessControl { router, .. } => {
+        ConfigExprKey::AccessControl { router: _router, .. } => {
             // TODO
             (ModifierGroup::Node, 0)
         }
