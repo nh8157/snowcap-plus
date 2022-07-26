@@ -48,7 +48,7 @@ pub enum Condition {
     // add ReliableIGP
     /// Condition on the path during transient state
     TransientPath(RouterId, Prefix, PathCondition),
-    // add TransientPathIGP
+    
 }
 
 impl fmt::Display for Condition {

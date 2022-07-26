@@ -1,11 +1,13 @@
 use crate::hard_policies::{Condition, HardPolicy};
-use crate::netsim::config::{ConfigExpr, ConfigModifier, ConfigPatch};
+use crate::netsim::config::{ConfigExpr, ConfigModifier};
 // use crate::netsim::router::Router;
-use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkDevice, Prefix, RouterId};
-use crate::strategies::{Strategy, StrategyDAG};
-use crate::{Error, Stopper};
 use crate::dep_groups::utils::*;
-use daggy::{Children, Dag, Parents};
+use crate::netsim::{BgpSessionType, ForwardingState, Network, RouterId, Prefix};
+use crate::strategies::StrategyDAG;
+use crate::{Error, Stopper};
+use daggy::Dag;
+use log::*;
+use petgraph::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -17,12 +19,21 @@ pub type ZoneId = RouterId;
 pub struct Zone<'a> {
     pub id: ZoneId, // each zone is identified by the last router in the zone
     pub routers: HashSet<RouterId>,
+    // index of the configurations
+    // could be updated to index of the configurations instead
     pub configs: Vec<&'a ConfigModifier>,
+    // a field holding the associated hard policies are also necessary
+    hard_policy: HashSet<Condition>,
 }
 
 impl<'a> Zone<'a> {
     pub fn new(id: RouterId) -> Self {
-        Self { id: id, routers: HashSet::<RouterId>::new(), configs: vec![] }
+        Self {
+            id: id,
+            routers: HashSet::<RouterId>::new(),
+            configs: Vec::<&ConfigModifier>::new(),
+            hard_policy: HashSet::<Condition>::new(),
+        }
     }
     pub fn contains_router(&self, router: &RouterId) -> bool {
         self.routers.contains(router)
@@ -39,13 +50,17 @@ impl<'a> Zone<'a> {
     fn add_config(&mut self, config: &'a ConfigModifier) {
         self.configs.push(config);
     }
+    fn add_hard_policy(&mut self, condition: Condition) {
+        if !self.hard_policy.contains(&condition) {
+            self.hard_policy.insert(condition);
+        }
+    }
 }
-
-// type Zone = HashSet<RouterId>;
 
 pub struct StrategyZone {
     net: Network,
-    path_dependency: HashMap<RouterId, (Vec<RouterId>, Vec<RouterId>)>,
+    // zones: HashMap<ZoneId, Zone>,
+    // path_dependency: HashMap<RouterId, (Vec<RouterId>, Vec<RouterId>)>,
     // dag: Dag<ConfigModifier, u32, u32>,
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
@@ -62,7 +77,7 @@ impl StrategyDAG for StrategyZone {
         println!("{:?}", &hard_policy);
         Ok(Box::new(Self {
             net,
-            path_dependency: HashMap::new(),
+            // path_dependency: HashMap::new(),
             // dag: daggy::
             modifiers,
             hard_policy,
@@ -71,15 +86,40 @@ impl StrategyDAG for StrategyZone {
     }
 
     fn work(&mut self, abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        let zones = self.zone_partition();
-        // println!("{:?}", zones);
-        let (mut before_state, mut after_state) = self.get_before_after_states();
-        let map = zone_into_map(&zones);
-        // println!("{:?}", map);
-        for p in &self.hard_policy.prop_vars {
-            // how are these invariances organized?
-            let (before_invariance, after_invariance) =
-                self.split_invariances(p, &mut before_state, &mut after_state, &map)?;
+        let mut zones = self.zone_partition();
+        let (mut before_state, mut after_state) = self.get_before_after_states()?;
+        let router_to_zone_map = zone_into_map(&zones);
+
+        // First verify if the hard policy is global reachability
+        // The current algorithm cannot handle other LTL modals
+        if !self.hard_policy.is_global_reachability() {
+            return Err(Error::NotImplemented);
+        }
+
+        // partition each invariance according to their zones
+        // might need to check the temporal modal as well?
+        for c in &self.hard_policy.prop_vars {
+            match c {
+                // only support reachable/not reachable condtions
+                Condition::Reachable(r, p, _) => {
+                    let (before_path, after_path) =
+                        extract_paths_for_router(*r, *p, &mut before_state, &mut after_state);
+
+                    // segment routers on new route and old route into different zones
+                    let before_zones = segment_path(&router_to_zone_map, &before_path)?;
+                    let after_zones = segment_path(&router_to_zone_map, &after_path)?;
+                    // create propositional variables using these zones
+
+                    for x in &after_zones {
+                        let router = x.first().unwrap();
+                    }
+                }
+                // Might need adaptation for condition NotReachable
+                _ => {
+                    error!("Can only handle condition reachable");
+                    return Err(Error::NotImplemented);
+                }
+            }
         }
         Ok(Dag::<ConfigModifier, u32, u32>::new())
     }
@@ -147,7 +187,10 @@ impl StrategyZone {
         // for each internal router, reversely find its parents and grandparents
     }
 
-    fn bind_config_to_zone<'a>(&'a self, mut zones: HashMap<RouterId, Zone<'a>>) -> HashMap<RouterId, Zone>{
+    fn bind_config_to_zone<'a>(
+        &'a self,
+        mut zones: HashMap<RouterId, Zone<'a>>,
+    ) -> HashMap<RouterId, Zone> {
         // let net = &self.net;
         let configs = &self.modifiers;
         // let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
@@ -228,41 +271,43 @@ impl StrategyZone {
         zones
     }
 
-    fn split_invariances(
-        &self,
-        hard_policy: &Condition,
-        before_state: &mut ForwardingState,
-        after_state: &mut ForwardingState,
-        map: &HashMap<RouterId, Vec<ZoneId>>,
-    ) -> Result<(Vec<HardPolicy>, Vec<HardPolicy>), Error> {
-        match hard_policy {
-            Condition::Reachable(r, p, _) | Condition::NotReachable(r, p) => {
-                let (before_path, after_path) =
-                    extract_paths_for_router(*r, *p, before_state, after_state);
-                // segment routers on new route and old route into different zones
-                let before_zones = segment_path(map, &before_path);
-                let after_zones = segment_path(map, &after_path);
-                // create a new set of invariances according to these zones
-                println!("{:?}", before_zones);
-                println!("{:?}", after_zones);
+    fn segment_invariance_to_zones(
+        &mut self,
+        p: &Prefix,
+        segmented_paths: &Vec<Vec<NodeIndex>>,
+        zones: &mut HashMap<ZoneId, Zone>,
+        router_to_zone: HashMap<RouterId, Vec<ZoneId>>
+    ) -> Result<(), Error> {
+        for x in segmented_paths {
+            let router = x.first().unwrap();
+            if let Some(current_zones) = router_to_zone.get(router) {
+                // what if the router belongs to multiple zones? do we need to add them to zone one by one?
+                current_zones.iter().for_each(|x| {
+                    if zones.contains_key(x) {
+                        let ptr = zones.get_mut(x).unwrap();
+                        ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
+                    }
+                });
+            } else {
+                error!("Router does not exist in zone");
+                return Err(Error::ZoneSegmentationFailed);
             }
-            _ => {}
         }
-        Ok((vec![], vec![]))
+        Ok(())
     }
 
-    fn get_before_after_states(&self) -> (ForwardingState, ForwardingState) {
-        let after_net = self.get_after_net();
-        (self.net.get_forwarding_state(), after_net.get_forwarding_state())
+    fn get_before_after_states(&self) -> Result<(ForwardingState, ForwardingState), Error> {
+        let after_net = self.get_after_net()?;
+        Ok((self.net.get_forwarding_state(), after_net.get_forwarding_state()))
     }
 
-    fn get_after_net(&self) -> Network {
+    fn get_after_net(&self) -> Result<Network, Error> {
         let mut after_net = self.net.clone();
         for c in self.modifiers.iter() {
             // this may not work for topologies that take into account time (e.g. Difficult gadget)
-            after_net.apply_modifier(c);
+            after_net.apply_modifier(c)?;
         }
-        after_net
+        Ok(after_net)
     }
 
     fn is_client_or_boundary(&self, rid: &RouterId) -> bool {
@@ -314,18 +359,21 @@ impl StrategyZone {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::vec;
-    use crate::hard_policies::HardPolicy;
-    use crate::netsim::RouterId;
-    use crate::dep_groups::strategy_zone::{ZoneId, Zone, StrategyZone};
+    use crate::dep_groups::strategy_zone::{StrategyZone, Zone, ZoneId};
     use crate::example_networks::repetitions::{Repetition10, Repetition5};
-    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, FirewallNet, AbileneNetwork, BipartiteGadget, ChainGadget};
+    use crate::example_networks::{
+        AbileneNetwork, BipartiteGadget, ChainGadget, ChainGadgetLegacy, ExampleNetwork,
+        FirewallNet,
+    };
+    use crate::hard_policies::HardPolicy;
     use crate::netsim::Network;
+    use crate::netsim::RouterId;
     use crate::strategies::StrategyDAG;
     use crate::Stopper;
     use daggy::walker::Chain;
     use petgraph::prelude::NodeIndex;
+    use std::collections::HashMap;
+    use std::vec;
 
     #[test]
     fn test_chain_gadget_partition() {
@@ -344,12 +392,9 @@ mod test {
         let init_config = ChainGadgetLegacy::<Repetition10>::initial_config(&net, 0);
         let final_config = ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
         let policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
-        let mut strategy = StrategyZone::new(
-            net,
-            init_config.get_diff(&final_config).modifiers,
-            policy,
-            None
-        ).unwrap();
+        let mut strategy =
+            StrategyZone::new(net, init_config.get_diff(&final_config).modifiers, policy, None)
+                .unwrap();
         strategy.work(Stopper::new());
     }
 

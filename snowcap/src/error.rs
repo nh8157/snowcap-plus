@@ -43,6 +43,9 @@ pub enum Error {
     /// The maximum number of backtracks are reached
     #[error("The configured max backtrack level was reached!")]
     ReachedMaxBacktrack,
+    /// The zone cannot be segmented
+    #[error("Zone segmentation failed")]
+    ZoneSegmentationFailed,
     /// Used up all of the time budget
     #[error("The time budget was used up without finding any solution")]
     Timeout,

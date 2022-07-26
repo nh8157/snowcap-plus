@@ -28,8 +28,8 @@ use crate::netsim::{printer, Network, NetworkError, RouterId, Prefix, Forwarding
 use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
 use std::collections::{HashSet, HashMap};
-
 use log::*;
+
 use std::time::{Duration, SystemTime, Instant};
 
 /// # Finding Dependencies
@@ -677,7 +677,7 @@ fn generate_watch_errors(hard_policy: &Option<HardPolicy>) -> WatchErrors {
     }
 }
 
-pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Vec<Vec<RouterId>> {
+pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Result<Vec<Vec<RouterId>>, Error> {
     let mut zones = Vec::<Vec<RouterId>>::new();
     let mut cached_set = HashSet::<&RouterId>::new();
     // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
@@ -700,7 +700,11 @@ pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<Rout
             cached_set = map.get(&path[b]).unwrap_or(&empty).iter().collect();
         }
     }
-    zones
+    if zones.len() == 0 {
+        error!("Failure detected when trying to segment path");
+        return Err(Error::ZoneSegmentationFailed)
+    }
+    Ok(zones)
 }
 
 pub fn extract_paths_for_router(

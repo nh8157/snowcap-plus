@@ -104,10 +104,42 @@ impl HardPolicy {
         );
         Self::new(prop_vars, expr)
     }
+    
+    /// This function checks if the current hard policy defines reachability globally
+    pub fn is_global_reachability(&self) -> bool {
+        if self.all_globally() && self.all_reachable() {
+            return true;
+        }
+        false
+    }
+    
+    // This function checks if all propositional variables are global
+    fn all_reachable(&self) -> bool {
+        let all_reachable = self.prop_vars
+            .iter()
+            .find(|x| {
+                if let Condition::Reachable(_, _, _) = **x {
+                    return false;
+                }
+                true
+            })
+            .is_none();
+        if !all_reachable {
+            return false;
+        }
+        true
+    }
+
+    /// This function checks if an LTL modal holds globally
+    fn all_globally(&self) -> bool {
+        match &self.expr {
+            // this match may not be exhaustive, as it does not cover recursive definition of LTL Operator
+            LTLModal::Globally(_) => true,
+            _ => false
+        }
+    }
 
     /// Create a new Linear Temporal Logic Hard Policy
-    // The temporal information is encoded in the LTLModel enum, use prop_vars
-    // to index its elements?
     pub fn new(prop_vars: Vec<Condition>, expr: LTLModal) -> Self {
         let reliability = prop_vars
             .iter()
