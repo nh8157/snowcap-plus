@@ -24,6 +24,7 @@ pub struct Zone {
     pub configs: Vec<usize>,
     // a field holding the associated hard policies are also necessary
     hard_policy: HashSet<Condition>,
+    virtual_boundary: HashSet<RouterId>,
 }
 
 impl Zone {
@@ -33,6 +34,7 @@ impl Zone {
             routers: HashSet::<RouterId>::new(),
             configs: Vec::<usize>::new(),
             hard_policy: HashSet::<Condition>::new(),
+            virtual_boundary: HashSet::<RouterId>::new(),
         }
     }
     pub fn contains_router(&self, router: &RouterId) -> bool {
@@ -53,6 +55,11 @@ impl Zone {
     fn add_hard_policy(&mut self, condition: Condition) {
         if !self.hard_policy.contains(&condition) {
             self.hard_policy.insert(condition);
+        }
+    }
+    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId) {
+        if !self.virtual_boundary.contains(&virtual_boundary_router) {
+            self.virtual_boundary.insert(virtual_boundary_router);
         }
     }
 }
@@ -86,11 +93,9 @@ impl StrategyDAG for StrategyZone {
     }
 
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        println!("Begin work");
         self.zones = self.zone_partition();
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
         let router_to_zone = zone_into_map(&self.zones);
-        println!("{:?}", router_to_zone);
 
         // First verify if the hard policy is global reachability
         // The current algorithm cannot handle other LTL modals
@@ -98,7 +103,7 @@ impl StrategyDAG for StrategyZone {
             return Err(Error::NotImplemented);
         }
         let condition = self.hard_policy.prop_vars.clone();
-        println!("Conditions retrieved");
+        // println!("Conditions retrieved");
         // partition each invariance according to their zones
         // might need to check the temporal modal as well?
         for c in &condition {
@@ -111,9 +116,11 @@ impl StrategyDAG for StrategyZone {
                     // segment routers on new route and old route into different zones
                     let before_zones = segment_path(&router_to_zone, &before_path)?;
                     let after_zones = segment_path(&router_to_zone, &after_path)?;
-                    // create propositional variables using these zones
-                    self.segment_invariance_to_zones(p, &before_zones, &router_to_zone)?;
-                    self.segment_invariance_to_zones(p, &after_zones, &router_to_zone)?;
+                    // create propositional variables and virtual boundaries using these zones
+                    // build path-wise dependencies
+                    self.split_invariance(p, &before_zones, &router_to_zone)?;
+                    self.split_invariance(p, &after_zones, &router_to_zone)?;
+
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -269,7 +276,7 @@ impl StrategyZone {
         zones
     }
 
-    fn segment_invariance_to_zones(
+    fn split_invariance(
         &mut self,
         p: &Prefix,
         segmented_paths: &Vec<Vec<NodeIndex>>,
@@ -277,23 +284,29 @@ impl StrategyZone {
     ) -> Result<(), Error> {
         for x in segmented_paths {
             let router = x.first().unwrap();
-            if let Some(current_zones) = router_to_zone.get(router) {
-                // what if the router belongs to multiple zones? do we need to add them to zone one by one?
-                current_zones.iter().for_each(|x| {
-                    if self.zones.contains_key(x) {
-                        let ptr = self.zones.get_mut(x).unwrap();
-                        ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
+            let virtual_boundary = x.last().unwrap();
+            let router_zone = router_to_zone.get(router);
+            let virtual_boundary_zone = router_to_zone.get(virtual_boundary);
+            match (router_zone, virtual_boundary_zone) {
+                // skip the cases where any one of them belong to different zones
+                (Some(zone1), Some(zone2)) => {
+                    let set1: HashSet<_> = zone1.into_iter().collect();
+                    let set2: HashSet<_> = zone2.into_iter().collect();
+                    // calculate the intersection of the zones the beginning and the ending routers belong to
+                    let intersect = set1.intersection(&set2);
+                    // only add policy, virtual boundary router to the zones that are common
+                    for z in intersect {
+                        if self.zones.contains_key(*z) {
+                            let zone_ptr = self.zones.get_mut(*z).unwrap();
+                            zone_ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
+                            // place virtual boundary router
+                            zone_ptr.add_virtual_boundary(*virtual_boundary);
+                        }
                     }
-                });
+
+                }
+                _ => continue,
             }
-            // This part is currently unusable
-            // because some routers may not belong to any zone before reconfiguration
-            /*
-               else {
-                   error!("Router does not exist in zone");
-                   return Err(Error::ZoneSegmentationFailed);
-               }
-            */
         }
         Ok(())
     }
@@ -357,7 +370,6 @@ impl StrategyZone {
 /// For each non-route-reflector internal device, find the zone it belongs to
 /// returned in a HashMap, key is the internal router's id, value is the associated zone
 // In the future can be modified to any router that maintains reachability conditions
-// Issue: do we need a better representation for the zone? (maybe use a dag?)
 
 #[cfg(test)]
 mod test {
