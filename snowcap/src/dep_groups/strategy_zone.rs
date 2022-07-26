@@ -2,7 +2,7 @@ use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 // use crate::netsim::router::Router;
 use crate::dep_groups::utils::*;
-use crate::netsim::{BgpSessionType, ForwardingState, Network, RouterId, Prefix};
+use crate::netsim::{BgpSessionType, ForwardingState, Network, Prefix, RouterId};
 use crate::strategies::StrategyDAG;
 use crate::{Error, Stopper};
 use daggy::Dag;
@@ -16,22 +16,22 @@ use std::time::Duration;
 pub type ZoneId = RouterId;
 
 #[derive(Debug, Clone)]
-pub struct Zone<'a> {
+pub struct Zone {
     pub id: ZoneId, // each zone is identified by the last router in the zone
     pub routers: HashSet<RouterId>,
     // index of the configurations
     // could be updated to index of the configurations instead
-    pub configs: Vec<&'a ConfigModifier>,
+    pub configs: Vec<usize>,
     // a field holding the associated hard policies are also necessary
     hard_policy: HashSet<Condition>,
 }
 
-impl<'a> Zone<'a> {
+impl Zone {
     pub fn new(id: RouterId) -> Self {
         Self {
             id: id,
             routers: HashSet::<RouterId>::new(),
-            configs: Vec::<&ConfigModifier>::new(),
+            configs: Vec::<usize>::new(),
             hard_policy: HashSet::<Condition>::new(),
         }
     }
@@ -41,13 +41,13 @@ impl<'a> Zone<'a> {
     pub fn assign_routers(&mut self, routers: Vec<RouterId>) {
         routers.iter().for_each(|r| self.add_router(*r));
     }
-    pub fn assign_configs(&mut self, configs: Vec<&'a ConfigModifier>) {
-        configs.iter().for_each(|c| self.add_config(*c));
-    }
+    // pub fn assign_configs(&mut self, configs: Vec<usize>) {
+    //     configs.iter().for_each(|c| self.add_config(*c));
+    // }
     fn add_router(&mut self, router: RouterId) {
         self.routers.insert(router);
     }
-    fn add_config(&mut self, config: &'a ConfigModifier) {
+    fn add_config(&mut self, config: usize) {
         self.configs.push(config);
     }
     fn add_hard_policy(&mut self, condition: Condition) {
@@ -59,12 +59,12 @@ impl<'a> Zone<'a> {
 
 pub struct StrategyZone {
     net: Network,
-    // zones: HashMap<ZoneId, Zone>,
+    zones: HashMap<ZoneId, Zone>,
     // path_dependency: HashMap<RouterId, (Vec<RouterId>, Vec<RouterId>)>,
     // dag: Dag<ConfigModifier, u32, u32>,
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
-    stop_time: Option<Duration>,
+    _stop_time: Option<Duration>,
 }
 
 impl StrategyDAG for StrategyZone {
@@ -74,31 +74,34 @@ impl StrategyDAG for StrategyZone {
         hard_policy: HardPolicy,
         time_budget: Option<Duration>,
     ) -> Result<Box<Self>, crate::Error> {
-        println!("{:?}", &hard_policy);
         Ok(Box::new(Self {
             net,
+            zones: HashMap::<ZoneId, Zone>::new(),
             // path_dependency: HashMap::new(),
             // dag: daggy::
             modifiers,
             hard_policy,
-            stop_time: time_budget,
+            _stop_time: time_budget,
         }))
     }
 
-    fn work(&mut self, abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        let mut zones = self.zone_partition();
+    fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
+        println!("Begin work");
+        self.zones = self.zone_partition();
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
-        let router_to_zone_map = zone_into_map(&zones);
+        let router_to_zone = zone_into_map(&self.zones);
+        println!("{:?}", router_to_zone);
 
         // First verify if the hard policy is global reachability
         // The current algorithm cannot handle other LTL modals
         if !self.hard_policy.is_global_reachability() {
             return Err(Error::NotImplemented);
         }
-
+        let condition = self.hard_policy.prop_vars.clone();
+        println!("Conditions retrieved");
         // partition each invariance according to their zones
         // might need to check the temporal modal as well?
-        for c in &self.hard_policy.prop_vars {
+        for c in &condition {
             match c {
                 // only support reachable/not reachable condtions
                 Condition::Reachable(r, p, _) => {
@@ -106,13 +109,11 @@ impl StrategyDAG for StrategyZone {
                         extract_paths_for_router(*r, *p, &mut before_state, &mut after_state);
 
                     // segment routers on new route and old route into different zones
-                    let before_zones = segment_path(&router_to_zone_map, &before_path)?;
-                    let after_zones = segment_path(&router_to_zone_map, &after_path)?;
+                    let before_zones = segment_path(&router_to_zone, &before_path)?;
+                    let after_zones = segment_path(&router_to_zone, &after_path)?;
                     // create propositional variables using these zones
-
-                    for x in &after_zones {
-                        let router = x.first().unwrap();
-                    }
+                    self.segment_invariance_to_zones(p, &before_zones, &router_to_zone)?;
+                    self.segment_invariance_to_zones(p, &after_zones, &router_to_zone)?;
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -121,6 +122,7 @@ impl StrategyDAG for StrategyZone {
                 }
             }
         }
+        println!("{:?}", self.zones);
         Ok(Dag::<ConfigModifier, u32, u32>::new())
     }
 }
@@ -187,17 +189,13 @@ impl StrategyZone {
         // for each internal router, reversely find its parents and grandparents
     }
 
-    fn bind_config_to_zone<'a>(
-        &'a self,
-        mut zones: HashMap<RouterId, Zone<'a>>,
-    ) -> HashMap<RouterId, Zone> {
+    fn bind_config_to_zone(&self, mut zones: HashMap<RouterId, Zone>) -> HashMap<RouterId, Zone> {
         // let net = &self.net;
-        let configs = &self.modifiers;
         // let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
         for (_, z) in &mut zones {
             // println!("{:?}", z);
             // let mut zone_configs = Vec::<&ConfigModifier>::new();
-            for config in configs {
+            for (idx, config) in self.modifiers.iter().enumerate() {
                 match config {
                     ConfigModifier::Insert(c) | ConfigModifier::Remove(c) => {
                         // Only implement zone partitioning for BGP Session configurations
@@ -209,20 +207,20 @@ impl StrategyZone {
                             match routers_in_zone {
                                 // both routers are in the zone
                                 (true, true) => {
-                                    z.add_config(config);
+                                    z.add_config(idx);
                                 }
                                 (true, false) => {
                                     // if the source router is in the zone and is a client, or is an eBGP
                                     if *session_type == BgpSessionType::IBgpClient
                                         || *session_type == BgpSessionType::EBgp
                                     {
-                                        z.add_config(config);
+                                        z.add_config(idx);
                                     } else {
                                         // or the target router is a route reflector/boundary router
                                         if self.is_client_or_boundary(target)
                                             && !self.is_self_client(source, target)
                                         {
-                                            z.add_config(config);
+                                            z.add_config(idx);
                                         }
                                     }
                                 }
@@ -230,7 +228,7 @@ impl StrategyZone {
                             }
                         } else if let ConfigExpr::BgpRouteMap { router, direction: _, map: _ } = c {
                             if z.contains_router(router) {
-                                z.add_config(config);
+                                z.add_config(idx);
                             }
                         }
                     }
@@ -245,12 +243,12 @@ impl StrategyZone {
                         ) => {
                             let routers_in_zone = (z.contains_router(s1), z.contains_router(t1));
                             match routers_in_zone {
-                                (true, true) => z.add_config(config),
+                                (true, true) => z.add_config(idx),
                                 (true, false)
                                     if *session1 == BgpSessionType::IBgpClient
                                         || *session2 == BgpSessionType::IBgpClient =>
                                 {
-                                    z.add_config(config);
+                                    z.add_config(idx);
                                 }
                                 _ => {}
                             }
@@ -260,7 +258,7 @@ impl StrategyZone {
                             ConfigExpr::BgpRouteMap { router: _, direction: _, map: _ },
                         ) => {
                             if z.contains_router(router) {
-                                z.add_config(config);
+                                z.add_config(idx);
                             }
                         }
                         _ => {}
@@ -275,23 +273,27 @@ impl StrategyZone {
         &mut self,
         p: &Prefix,
         segmented_paths: &Vec<Vec<NodeIndex>>,
-        zones: &mut HashMap<ZoneId, Zone>,
-        router_to_zone: HashMap<RouterId, Vec<ZoneId>>
+        router_to_zone: &HashMap<RouterId, Vec<ZoneId>>,
     ) -> Result<(), Error> {
         for x in segmented_paths {
             let router = x.first().unwrap();
             if let Some(current_zones) = router_to_zone.get(router) {
                 // what if the router belongs to multiple zones? do we need to add them to zone one by one?
                 current_zones.iter().for_each(|x| {
-                    if zones.contains_key(x) {
-                        let ptr = zones.get_mut(x).unwrap();
+                    if self.zones.contains_key(x) {
+                        let ptr = self.zones.get_mut(x).unwrap();
                         ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
                     }
                 });
-            } else {
-                error!("Router does not exist in zone");
-                return Err(Error::ZoneSegmentationFailed);
             }
+            // This part is currently unusable
+            // because some routers may not belong to any zone before reconfiguration
+            /*
+               else {
+                   error!("Router does not exist in zone");
+                   return Err(Error::ZoneSegmentationFailed);
+               }
+            */
         }
         Ok(())
     }
@@ -315,7 +317,7 @@ impl StrategyZone {
         let result = router
             .bgp_sessions
             .iter()
-            .map(|(id, session)| {
+            .map(|(_, session)| {
                 (*session == BgpSessionType::EBgp) || (*session == BgpSessionType::IBgpClient)
             })
             .fold(false, |acc, x| (acc | x));
@@ -359,18 +361,14 @@ impl StrategyZone {
 
 #[cfg(test)]
 mod test {
-    use crate::dep_groups::strategy_zone::{StrategyZone, Zone, ZoneId};
-    use crate::example_networks::repetitions::{Repetition10, Repetition5};
-    use crate::example_networks::{
-        AbileneNetwork, BipartiteGadget, ChainGadget, ChainGadgetLegacy, ExampleNetwork,
-        FirewallNet,
-    };
-    use crate::hard_policies::HardPolicy;
-    use crate::netsim::Network;
+    use crate::dep_groups::strategy_zone::{StrategyZone, ZoneId};
+    use crate::example_networks::repetitions::Repetition10;
+    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork};
+    // use crate::hard_policies::HardPolicy;
+    // use crate::netsim::Network;
     use crate::netsim::RouterId;
     use crate::strategies::StrategyDAG;
     use crate::Stopper;
-    use daggy::walker::Chain;
     use petgraph::prelude::NodeIndex;
     use std::collections::HashMap;
     use std::vec;
@@ -384,6 +382,7 @@ mod test {
         let policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
         let strategy = StrategyZone::new(net, patch.modifiers, policy, None).unwrap();
         let zone = strategy.zone_partition();
+        println!("{:?}", &zone);
     }
 
     #[test]
@@ -395,12 +394,12 @@ mod test {
         let mut strategy =
             StrategyZone::new(net, init_config.get_diff(&final_config).modifiers, policy, None)
                 .unwrap();
-        strategy.work(Stopper::new());
+        strategy.work(Stopper::new()).expect("Panicked");
     }
 
     #[test]
     fn test_firewall_net_partition() {
-        let net = FirewallNet::net(0);
+        // let net = FirewallNet::net(0);
         // let map = strategy_zone::zone_partition(&net);
         // // println!("{:?}", map);
         // strategy_zone::zone_pretty_print(&net, &map);
@@ -408,7 +407,7 @@ mod test {
 
     #[test]
     fn test_abilene_net_partition() {
-        let net = AbileneNetwork::net(0);
+        // let net = AbileneNetwork::net(0);
         // let map = strategy_zone::zone_partition(&net);
         // let init_config = example_networks::AbileneNetwork::initial_config(&net, 0);
         // let final_config = example_networks::AbileneNetwork::final_config(&net, 0);
@@ -480,11 +479,11 @@ mod test {
         map.insert(t0, vec![t0]);
         map.insert(t1, vec![t1]);
 
-        let path = vec![t1, t0, b0];
-        let path2 = vec![t1, b1];
-        let path3 = vec![r0, r1, b0];
-        let path4 = vec![r1, r0, b1];
-        let path5 = vec![r1, b0];
+        // let path = vec![t1, t0, b0];
+        // let path2 = vec![t1, b1];
+        // let path3 = vec![r0, r1, b0];
+        // let path4 = vec![r1, r0, b1];
+        // let path5 = vec![r1, b0];
 
         // assert_eq!(StrategyZone::segment_path(&map, &path), vec![vec![t1], vec![t0, b0]]);
         // assert_eq!(StrategyZone::segment_path(&map, &path2), vec![vec![t1, b1]]);
