@@ -20,11 +20,10 @@ pub struct Zone {
     pub id: ZoneId, // each zone is identified by the last router in the zone
     pub routers: HashSet<RouterId>,
     // index of the configurations
-    // could be updated to index of the configurations instead
     pub configs: Vec<usize>,
-    // a field holding the associated hard policies are also necessary
     hard_policy: HashSet<Condition>,
-    virtual_boundary: HashSet<RouterId>,
+    virtual_boundary: HashMap<RouterId, Vec<Prefix>>,
+    virtual_network: Network,
 }
 
 impl Zone {
@@ -34,13 +33,14 @@ impl Zone {
             routers: HashSet::<RouterId>::new(),
             configs: Vec::<usize>::new(),
             hard_policy: HashSet::<Condition>::new(),
-            virtual_boundary: HashSet::<RouterId>::new(),
+            virtual_boundary: HashMap::<RouterId, Vec<Prefix>>::new(),
+            virtual_network: Network::new(),
         }
     }
-    pub fn contains_router(&self, router: &RouterId) -> bool {
+    fn contains_router(&self, router: &RouterId) -> bool {
         self.routers.contains(router)
     }
-    pub fn assign_routers(&mut self, routers: Vec<RouterId>) {
+    fn assign_routers(&mut self, routers: Vec<RouterId>) {
         routers.iter().for_each(|r| self.add_router(*r));
     }
     // pub fn assign_configs(&mut self, configs: Vec<usize>) {
@@ -57,10 +57,14 @@ impl Zone {
             self.hard_policy.insert(condition);
         }
     }
-    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId) {
-        if !self.virtual_boundary.contains(&virtual_boundary_router) {
-            self.virtual_boundary.insert(virtual_boundary_router);
-        }
+    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId, prefix: Prefix) {
+        let ptr = self.virtual_boundary.entry(virtual_boundary_router).or_insert(vec![]);
+        ptr.push(prefix);
+    }
+    // This function uses zone info to extract settings from the actual network
+    fn build_virtual_zone(&self, net: &Network) -> Result<Network, Error> {
+        error!("Assemble virtual zone is not yet implemented");
+        Err(Error::NotImplemented)
     }
 }
 
@@ -300,7 +304,7 @@ impl StrategyZone {
                             let zone_ptr = self.zones.get_mut(*z).unwrap();
                             zone_ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
                             // place virtual boundary router
-                            zone_ptr.add_virtual_boundary(*virtual_boundary);
+                            zone_ptr.add_virtual_boundary(*virtual_boundary, *p);
                         }
                     }
 

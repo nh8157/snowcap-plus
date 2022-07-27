@@ -288,4 +288,7 @@ pub enum NetworkError {
     /// probability in [`Network::apply_modifier_check_transient`])
     #[error("No events to reorder")]
     NoEventsToReorder,
+    /// Zone cannot be built from the current network
+    #[error("Virtual zone construction failed")]
+    ZoneConstructionFailed,
 }

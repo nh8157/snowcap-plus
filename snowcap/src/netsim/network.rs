@@ -553,6 +553,67 @@ impl Network {
         ForwardingState::from_net_new(self)
     }
 
+    /// Returns an emulated object of the zone
+    pub fn construct_virtual_zone(&self, routers: &Vec<RouterId>, virtual_boundary: &HashMap<RouterId, Vec<Prefix>>) -> Result<Network, NetworkError> {
+        /*
+            1. Remove routers from self.net, self.routers
+            2. Remove links from self.net, self.links
+            3. Initialize external router at the virtual boundary
+            4. (UNSURE) modify self.config/event_history/queue?
+         */
+        let mut new_net = self.clone();
+        let all_routers: HashSet<_> = self.routers.keys().collect();
+        let zone_routers: HashSet<_> = routers.iter().collect();
+        let router_diff: Vec<_> = all_routers.difference(&zone_routers).collect();
+        if router_diff.len() == 0 {
+            error!("Cannot find common router");
+            return Err(NetworkError::ZoneConstructionFailed);
+        }
+        // Initialize virtual external routers
+        // How should we represent the externality of these routers?
+        for (br, prefixes) in virtual_boundary {
+            match new_net.get_device(*br) {
+                NetworkDevice::InternalRouter(r) => {
+                    // Check if the original router already has connectivity to an external router
+                    for p in prefixes.iter() {
+                        let nh = r.get_next_hop(Destination::BGP(*p));
+                        if nh.is_none() {
+                            error!("Path invalid");
+                            return Err(NetworkError::ZoneConstructionFailed);
+                        }
+                        if !new_net.external_routers.contains_key(&nh.unwrap()) {
+                            // The virtual boundary does not connect to an external router
+                            // ################################################################
+                            // ##NEED TO RETHINK ABOUT THE REPRESENTATION OF VIRTUAL BOUNDARY##
+                            // ################################################################
+                            // Maybe we could directly write to the forwarding table of the boundary router
+                            // Issue: If a BGP update occurs in the future, what would happen to its BGP config?
+                            // If we use an external router to represent the virtual boundary, how to demonstrate
+                            // its BGP property without propagating its advertisement further into the network? 
+                            // Can we use a BGP route map to prevent this from happening?
+                            // new_net.add_external_router(name, as_id)
+                        }
+                    }
+                }
+                _ => {
+                    error!("Virtual boundary router is not internal");
+                    return Err(NetworkError::ZoneConstructionFailed);
+                }
+            }
+
+        }
+        // Remove routers that are not in the zone and their corresponding links
+        for r in router_diff {
+            new_net.net.remove_node(**r);
+            new_net.links = new_net.links.into_iter()
+                .filter(|(r1, r2)| *r1 != **r && *r2 != **r)
+                .collect();
+            new_net.routers.remove(*r);
+            // if the router is a boundary router, then we also need to remove the external router it connects to
+        }
+        Ok(new_net)
+    }
+
     // ********************
     // * Helper Functions *
     // ********************
@@ -736,6 +797,7 @@ impl Network {
                     }
                 };
             } else {
+                // if self.routers does not have this node, then implicitly it is an external router
                 break;
             }
         }
