@@ -2,7 +2,7 @@ use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 // use crate::netsim::router::Router;
 use crate::dep_groups::utils::*;
-use crate::netsim::{BgpSessionType, ForwardingState, Network, Prefix, RouterId};
+use crate::netsim::{AsId, BgpSessionType, ForwardingState, Network, Prefix, RouterId};
 use crate::strategies::StrategyDAG;
 use crate::{Error, Stopper};
 use daggy::Dag;
@@ -11,7 +11,7 @@ use petgraph::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-#[allow(unused_variables, unused_imports)]
+// #[allow(unused_variables, unused_imports)]
 
 pub type ZoneId = RouterId;
 
@@ -22,7 +22,7 @@ pub struct Zone {
     // index of the configurations
     pub configs: Vec<usize>,
     hard_policy: HashSet<Condition>,
-    virtual_boundary: HashMap<RouterId, Vec<Prefix>>,
+    virtual_boundary: HashMap<RouterId, Vec<(Prefix, AsId)>>,
     virtual_network: Network,
 }
 
@@ -33,7 +33,7 @@ impl Zone {
             routers: HashSet::<RouterId>::new(),
             configs: Vec::<usize>::new(),
             hard_policy: HashSet::<Condition>::new(),
-            virtual_boundary: HashMap::<RouterId, Vec<Prefix>>::new(),
+            virtual_boundary: HashMap::<RouterId, Vec<(Prefix, AsId)>>::new(),
             virtual_network: Network::new(),
         }
     }
@@ -57,9 +57,9 @@ impl Zone {
             self.hard_policy.insert(condition);
         }
     }
-    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId, prefix: Prefix) {
+    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId, prefix: Prefix, as_id: AsId) {
         let ptr = self.virtual_boundary.entry(virtual_boundary_router).or_insert(vec![]);
-        ptr.push(prefix);
+        ptr.push((prefix, as_id));
     }
     // This function uses zone info to extract settings from the actual network
     fn build_virtual_zone(&self, net: &Network) -> Result<Network, Error> {
@@ -116,15 +116,20 @@ impl StrategyDAG for StrategyZone {
                 Condition::Reachable(r, p, _) => {
                     let (before_path, after_path) =
                         extract_paths_for_router(*r, *p, &mut before_state, &mut after_state);
+                    // also need to retrieve the AS info of this router
+                    // the last hop must end at an external router
+                    let before_as_id =
+                        self.net.get_device(*before_path.last().unwrap()).unwrap_external().as_id();
+                    let after_as_id =
+                        self.net.get_device(*after_path.last().unwrap()).unwrap_external().as_id();
 
                     // segment routers on new route and old route into different zones
                     let before_zones = segment_path(&router_to_zone, &before_path)?;
                     let after_zones = segment_path(&router_to_zone, &after_path)?;
                     // create propositional variables and virtual boundaries using these zones
                     // build path-wise dependencies
-                    self.split_invariance(p, &before_zones, &router_to_zone)?;
-                    self.split_invariance(p, &after_zones, &router_to_zone)?;
-
+                    self.split_invariance(p, before_as_id, &before_zones, &router_to_zone)?;
+                    self.split_invariance(p, after_as_id, &after_zones, &router_to_zone)?;
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -283,6 +288,7 @@ impl StrategyZone {
     fn split_invariance(
         &mut self,
         p: &Prefix,
+        as_id: AsId,
         segmented_paths: &Vec<Vec<NodeIndex>>,
         router_to_zone: &HashMap<RouterId, Vec<ZoneId>>,
     ) -> Result<(), Error> {
@@ -304,10 +310,9 @@ impl StrategyZone {
                             let zone_ptr = self.zones.get_mut(*z).unwrap();
                             zone_ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
                             // place virtual boundary router
-                            zone_ptr.add_virtual_boundary(*virtual_boundary, *p);
+                            zone_ptr.add_virtual_boundary(*virtual_boundary, *p, as_id);
                         }
                     }
-
                 }
                 _ => continue,
             }

@@ -23,8 +23,9 @@
 // ACL
 // IP_addr: allow/deny
 // IP_addr&&port: allow/deny
-// IP_addr&&port&&protocol: allow/deny 
+// IP_addr&&port&&protocol: allow/deny
 
+// use crate::error;
 #[cfg(feature = "transient-violation")]
 use crate::hard_policies::{Condition, PolicyError};
 use crate::netsim::bgp::{BgpEvent, BgpSessionType};
@@ -34,7 +35,7 @@ use crate::netsim::external_router::ExternalRouter;
 use crate::netsim::printer;
 use crate::netsim::route_map::RouteMapDirection;
 use crate::netsim::router::Router;
-use crate::netsim::types::{IgpNetwork, NetworkDevice, Destination};
+use crate::netsim::types::{Destination, IgpNetwork, NetworkDevice};
 use crate::netsim::{
     AsId, ConfigError, ForwardingState, LinkWeight, NetworkError, Prefix, RouterId,
 };
@@ -153,6 +154,7 @@ pub struct Network {
     queue: EventQueue,
     event_history: Vec<(Event, Option<usize>)>,
     skip_queue: bool,
+    virtual_zone: Option<Vec<RouterId>>,
 }
 
 // implements the public trait clone
@@ -172,6 +174,7 @@ impl Clone for Network {
             // does not clone the event history
             event_history: Vec::new(),
             skip_queue: false,
+            virtual_zone: self.virtual_zone.clone(),
         }
     }
 }
@@ -198,6 +201,7 @@ impl Network {
             queue: EventQueue::new(),
             event_history: Vec::new(),
             skip_queue: false,
+            virtual_zone: None,
         }
     }
 
@@ -270,7 +274,7 @@ impl Network {
     /// fail if the modifiers cannot be applied to the current config, or if there was a problem
     /// while applying a modifier and letting the network converge. If the process fails, the
     /// network is in an undefined state.
-    
+
     pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<(), NetworkError> {
         // apply every modifier in order
         self.skip_queue = true;
@@ -284,7 +288,7 @@ impl Network {
     /// Apply a single configuration modification. The modification must be applicable to the
     /// current configuration. All messages are exchanged. The process fails, then the network is
     /// in an undefined state, and it should be rebuilt.
-    
+
     // exchange messages between all devices?
     pub fn apply_modifier(&mut self, modifier: &ConfigModifier) -> Result<(), NetworkError> {
         debug!("Applying modifier: {}", printer::config_modifier(self, modifier)?);
@@ -310,7 +314,7 @@ impl Network {
     /// It does this by shuffling the queue each and very time before performing the next step. If
     /// there exists no message to be reordered, this function returns
     /// [`NetworkError::NoEventsToReorder`].
-    
+
     // only one modifier is applied?
     #[cfg(feature = "transient-violation")]
     pub fn apply_modifier_check_transient(
@@ -549,70 +553,96 @@ impl Network {
     }
 
     /// Return forwarding state containing IGP comm
-    pub fn get_forwarding_state_new(&self) -> ForwardingState{
+    pub fn get_forwarding_state_new(&self) -> ForwardingState {
         ForwardingState::from_net_new(self)
     }
 
     /// Returns an emulated object of the zone
-    pub fn construct_virtual_zone(&self, routers: &Vec<RouterId>, virtual_boundary: &HashMap<RouterId, Vec<Prefix>>) -> Result<Network, NetworkError> {
-        /*
-            1. Remove routers from self.net, self.routers
-            2. Remove links from self.net, self.links
-            3. Initialize external router at the virtual boundary
-            4. (UNSURE) modify self.config/event_history/queue?
-         */
-        let mut new_net = self.clone();
-        let all_routers: HashSet<_> = self.routers.keys().collect();
-        let zone_routers: HashSet<_> = routers.iter().collect();
-        let router_diff: Vec<_> = all_routers.difference(&zone_routers).collect();
-        if router_diff.len() == 0 {
-            error!("Cannot find common router");
+    pub fn construct_virtual_zone(
+        &mut self,
+        routers: &Vec<RouterId>,
+        virtual_zone: &HashMap<RouterId, Vec<(Prefix, RouterId)>>,
+    ) -> Result<Network, NetworkError> {
+        // instead of deleting unused routers
+        // we can keep all routers, but instead 
+        // convert the network into a zone by adding 
+        // symbolic link to the virtual boundary routers
+        if self.virtual_zone.is_some() {
+            error!("Zone already exists");
             return Err(NetworkError::ZoneConstructionFailed);
         }
-        // Initialize virtual external routers
-        // How should we represent the externality of these routers?
-        for (br, prefixes) in virtual_boundary {
-            match new_net.get_device(*br) {
-                NetworkDevice::InternalRouter(r) => {
-                    // Check if the original router already has connectivity to an external router
-                    for p in prefixes.iter() {
-                        let nh = r.get_next_hop(Destination::BGP(*p));
-                        if nh.is_none() {
-                            error!("Path invalid");
-                            return Err(NetworkError::ZoneConstructionFailed);
-                        }
-                        if !new_net.external_routers.contains_key(&nh.unwrap()) {
-                            // The virtual boundary does not connect to an external router
-                            // ################################################################
-                            // ##NEED TO RETHINK ABOUT THE REPRESENTATION OF VIRTUAL BOUNDARY##
-                            // ################################################################
-                            // Maybe we could directly write to the forwarding table of the boundary router
-                            // Issue: If a BGP update occurs in the future, what would happen to its BGP config?
-                            // If we use an external router to represent the virtual boundary, how to demonstrate
-                            // its BGP property without propagating its advertisement further into the network? 
-                            // Can we use a BGP route map to prevent this from happening?
-                            // new_net.add_external_router(name, as_id)
-                        }
-                    }
-                }
-                _ => {
-                    error!("Virtual boundary router is not internal");
-                    return Err(NetworkError::ZoneConstructionFailed);
-                }
-            }
+        self.virtual_zone = Some(routers.to_owned());
 
+        for (r, v) in virtual_zone {
+            // check if the router is in the network
+            if let Some(router) = self.routers.get_mut(r) {
+                router.construct_virtual_boundary(v)?;
+            } else {
+                error!("No such router exists");
+                return Err(NetworkError::ZoneConstructionFailed);
+            }
         }
-        // Remove routers that are not in the zone and their corresponding links
-        for r in router_diff {
-            new_net.net.remove_node(**r);
-            new_net.links = new_net.links.into_iter()
-                .filter(|(r1, r2)| *r1 != **r && *r2 != **r)
-                .collect();
-            new_net.routers.remove(*r);
-            // if the router is a boundary router, then we also need to remove the external router it connects to
-        }
-        Ok(new_net)
+        /*
+        1. Remove routers from self.net, self.routers
+        2. Remove links from self.net, self.links
+        3. Initialize external router at the virtual boundary
+        4. (UNSURE) modify self.config/event_history/queue?
+        */
+        // let mut new_net = self.clone();
+        // let all_routers: HashSet<_> = self.routers.keys().collect();
+        // let zone_routers: HashSet<_> = routers.iter().collect();
+        // let router_diff: Vec<_> = all_routers.difference(&zone_routers).collect();
+        // if router_diff.len() == 0 {
+        //     error!("Cannot find common router");
+        //     return Err(NetworkError::ZoneConstructionFailed);
+        // }
+        // // Initialize virtual external routers
+        // // How should we represent the externality of these routers?
+        // for (br, external) in virtual_boundary {
+        //     match self.get_device(*br) {
+        //         NetworkDevice::InternalRouter(r) => {
+        //             // Check if the original router already has connectivity to an external router
+        //             for (p, as_id) in external.iter() {
+        //                 let nh = r.get_next_hop(Destination::BGP(*p));
+        //                 if nh.is_none() {
+        //                     error!("Path invalid");
+        //                     return Err(NetworkError::ZoneConstructionFailed);
+        //                 }
+        //                 if !new_net.external_routers.contains_key(&nh.unwrap()) {
+        //                     // The virtual boundary does not connect to an external router
+        //                     // ##################################################################
+        //                     // ## NEED TO RETHINK ABOUT THE REPRESENTATION OF VIRTUAL BOUNDARY ##
+        //                     // ##################################################################
+        //                     // Maybe we could directly write to the forwarding table of the boundary router
+        //                     // Issue: If a BGP update occurs in the future, what would happen to its BGP config?
+        //                     // If we use an external router to represent the virtual boundary, how to demonstrate
+        //                     // its BGP property without propagating its advertisement further into the network?
+        //                     // Can we use a BGP route map to prevent this from happening?
+        //                     let name = format!("ev{:?}", *br);
+        //                     new_net.add_external_router(name, *as_id);
+        //                     let router = new_net.get_device(*br).unwrap_internal();
+
+        //                 }
+        //             }
+        //         }
+        //         _ => {
+        //             error!("Virtual boundary router is not internal");
+        //             return Err(NetworkError::ZoneConstructionFailed);
+        //         }
+        //     }
+        // }
+        // // Remove routers that are not in the zone and their corresponding links
+        // for r in router_diff {
+        //     new_net.net.remove_node(**r);
+        //     new_net.links =
+        //         new_net.links.into_iter().filter(|(r1, r2)| *r1 != **r && *r2 != **r).collect();
+        //     new_net.routers.remove(*r);
+        //     // if the router is a boundary router, then we also need to remove the external router it connects to
+        // }
+        Err(NetworkError::ZoneConstructionFailed)
     }
+
+    /// This function destroys a virtual zone 
 
     // ********************
     // * Helper Functions *
@@ -696,7 +726,6 @@ impl Network {
         } else {
             true
         }
-
     }
 
     /// Configure the topology to pause the queue and return after a certain number of queue have
@@ -906,13 +935,13 @@ impl Network {
     ) -> Result<(), NetworkError> {
         // check that the modifier can be applied on the config
         // self.config is the current configurations on the network
-        // checks if the config can be applied 
+        // checks if the config can be applied
         // if so, appended to the config struct of the network
         self.config.apply_modifier(modifier)?;
         if undo {
             // println!("Undoing modifier {:?}", modifier);
         }
-        
+
         // If the modifier can be applied, then everything is ok and we can do the actual change.
         match modifier {
             ConfigModifier::Insert(expr) => match expr {
@@ -1114,7 +1143,7 @@ impl Network {
                 }
                 (
                     ConfigExpr::AccessControl { router: router1, accept: accept1, deny: deny1 },
-                    ConfigExpr::AccessControl { router: router2, accept: accept2, deny: deny2 }
+                    ConfigExpr::AccessControl { router: router2, accept: accept2, deny: deny2 },
                 ) if router1 == router2 => {
                     // check if the router before and after are the same
                     self.routers
@@ -1123,11 +1152,9 @@ impl Network {
                         .modify_acl_rules(accept1, deny1, accept2, deny2)?;
                     Ok(())
                 }
-                _ => {
-                    Err(NetworkError::ConfigError(ConfigError::ConfigModifierError(
-                        modifier.clone()
-                    )))
-                }
+                _ => Err(NetworkError::ConfigError(ConfigError::ConfigModifierError(
+                    modifier.clone(),
+                ))),
             },
         }
     }
@@ -1155,7 +1182,7 @@ impl Network {
                     Err(NetworkError::InvalidBgpSessionType(source, target, session_type))
                 } else {
                     // both routers register the type as iBGP Peer
-                    // iBGP peers are symmetrical in this case 
+                    // iBGP peers are symmetrical in this case
                     Ok((BgpSessionType::IBgpPeer, BgpSessionType::IBgpPeer))
                 }
             }
@@ -1507,8 +1534,6 @@ impl Network {
     */
 
     /// Execute the queue
-    // what is this function for?
-    // entirely for BGP?
     fn do_queue(&mut self) -> Result<(), NetworkError> {
         if self.skip_queue {
             return Ok(());

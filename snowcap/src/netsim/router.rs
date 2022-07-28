@@ -19,7 +19,7 @@
 
 use crate::netsim::bgp::{BgpEvent, BgpRibEntry, BgpRoute, BgpSessionType};
 use crate::netsim::route_map::RouteMap;
-use crate::netsim::types::{IgpNetwork, ACL, Destination};
+use crate::netsim::types::{Destination, IgpNetwork, ACL};
 use crate::netsim::{AsId, DeviceError, LinkWeight, Prefix, RouterId};
 use crate::netsim::{Event, EventQueue};
 use log::*;
@@ -68,6 +68,8 @@ pub struct Router {
     acl_accept: Vec<RouterId>,
     /// Device denied access (default None)
     acl_deny: Vec<RouterId>,
+    /// Indicates whether the current router is a virtual boundary router
+    virtual_boundary: Option<HashMap<Prefix, RouterId>>,
 }
 
 impl Clone for Router {
@@ -88,12 +90,13 @@ impl Clone for Router {
             undo_stack: Vec::new(),
             acl_accept: self.acl_accept.clone(),
             acl_deny: self.acl_deny.clone(),
+            virtual_boundary: self.virtual_boundary.clone(),
         }
     }
 }
 
 impl Router {
-	// creates a new router object
+    // creates a new router object
     pub(crate) fn new(name: String, router_id: RouterId, as_id: AsId) -> Router {
         Router {
             name,
@@ -111,6 +114,7 @@ impl Router {
             undo_stack: Vec::new(),
             acl_accept: Vec::new(),
             acl_deny: Vec::new(),
+            virtual_boundary: None,
         }
     }
 
@@ -147,6 +151,22 @@ impl Router {
         }
     }
 
+    pub(crate) fn construct_virtual_boundary(
+        &mut self,
+        prefix_to_external: &Vec<(Prefix, RouterId)>,
+    ) -> Result<(), DeviceError> {
+        let virtual_boundary: HashMap<_, _> = prefix_to_external.to_owned().into_iter().collect();
+        self.virtual_boundary = Some(virtual_boundary);
+        Ok(())
+    }
+
+    pub(crate) fn destroy_virtual_boundary(&mut self) -> Result<(), DeviceError> {
+        if self.virtual_boundary.is_some() {
+            self.virtual_boundary = None;
+            return Ok(());
+        }
+        Err(DeviceError::VirtualBoundaryDestructionFailed)
+    }
     /// handle an `Event`, and enqueue several resulting events. Returns Ok(true) if the forwarding
     /// state changes. Returns Ok(false) if the forwarding state is unchanged
     pub(crate) fn handle_event(
@@ -356,7 +376,7 @@ impl Router {
             None => None,
         }
     }
-    
+
     /// New function that supports IGP next hop
     pub fn get_next_hop(&self, dest: Destination) -> Option<RouterId> {
         // check whether it is of type RouterId or Prefix
@@ -368,6 +388,12 @@ impl Router {
                 if let Some(target) = self.static_routes.get(&prefix) {
                     return Some(*target);
                 };
+                if self.virtual_boundary.is_some() {
+                    let ptr = self.virtual_boundary.as_ref().unwrap();
+                    if let Some(nh) = ptr.get(&prefix) {
+                        return Some(*nh);
+                    }
+                }
                 // then, check the bgp table
                 match self.bgp_rib.get(&prefix) {
                     Some(entry) => {
@@ -436,9 +462,9 @@ impl Router {
 
     /// Append new routers to ACL rules
     pub(crate) fn add_acl_rules(
-        &mut self, 
-        accept: &Vec<RouterId>, 
-        deny: &Vec<RouterId>
+        &mut self,
+        accept: &Vec<RouterId>,
+        deny: &Vec<RouterId>,
     ) -> Result<(), DeviceError> {
         // TODO
         if accept.len() > 0 || deny.len() > 0 {
@@ -456,8 +482,8 @@ impl Router {
 
     /// Remove routers from ACL rules
     pub(crate) fn remove_acl_rules(
-        &mut self, 
-        accept: &Vec<RouterId>, 
+        &mut self,
+        accept: &Vec<RouterId>,
         deny: &Vec<RouterId>,
     ) -> Result<(), DeviceError> {
         // TODO
@@ -476,8 +502,8 @@ impl Router {
 
     /// Modify existing ACL rules
     pub(crate) fn modify_acl_rules(
-        &mut self, 
-        accept1: &Vec<RouterId>, 
+        &mut self,
+        accept1: &Vec<RouterId>,
         deny1: &Vec<RouterId>,
         accept2: &Vec<RouterId>,
         deny2: &Vec<RouterId>,
@@ -487,12 +513,17 @@ impl Router {
         // compute the set that are not in the original vector in the new vector, append them
         self.acl_append_remove(accept1, accept2, ACL::Accept)?;
         self.acl_append_remove(deny1, deny2, ACL::Deny)?;
-        
+
         Ok(())
     }
-    
+
     // Given the type of ACL, append the new rules, remove the old rules
-    fn acl_append_remove(&mut self, vec1: &Vec<RouterId>, vec2: &Vec<RouterId>, config_type: ACL) -> Result<(), DeviceError> {
+    fn acl_append_remove(
+        &mut self,
+        vec1: &Vec<RouterId>,
+        vec2: &Vec<RouterId>,
+        config_type: ACL,
+    ) -> Result<(), DeviceError> {
         let set1: HashSet<RouterId> = HashSet::from_iter(vec1.clone());
         let set2: HashSet<RouterId> = HashSet::from_iter(vec2.clone());
 
@@ -1204,7 +1235,7 @@ impl Router {
     //         // then return false
     //         self.acl_deny.contains(sender)^true
     //     }
-        
+
     // }
 }
 

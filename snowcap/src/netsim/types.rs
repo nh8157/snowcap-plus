@@ -227,6 +227,12 @@ pub enum DeviceError {
     /// Cannot undo the action, data seems to have changed!
     #[error("Cannot undo the action: {0}")]
     UndoStackError(&'static str),
+    /// The current router cannot setup a virtual boundary
+    #[error("Cannot setup virtual boundary")]
+    VirtualBoundaryConstructionFailed,
+    /// Cannot deconstruct virtual boundary on the current router
+    #[error("Virtual boundary destruction failed")]
+    VirtualBoundaryDestructionFailed,
 }
 
 /// Network Errors
