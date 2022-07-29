@@ -682,7 +682,7 @@ pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<Rout
     let mut cached_set = HashSet::<&RouterId>::new();
     // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
     let empty: Vec<RouterId> = vec![];
-    for b in 0..(path.len() - 1) {
+    for b in 0..(path.len()) {
         if b > 0 {
             // get the current router's zone
             let set2: HashSet<_> = map.get(&path[b]).unwrap_or(&empty).iter().collect();

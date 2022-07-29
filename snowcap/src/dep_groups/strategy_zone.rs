@@ -2,10 +2,11 @@ use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 // use crate::netsim::router::Router;
 use crate::dep_groups::utils::*;
-use crate::netsim::{AsId, BgpSessionType, ForwardingState, Network, Prefix, RouterId};
+use crate::netsim::{BgpSessionType, ForwardingState, Network, Prefix, RouterId};
 use crate::strategies::StrategyDAG;
 use crate::{Error, Stopper};
 use daggy::Dag;
+use itertools::iproduct;
 use log::*;
 use petgraph::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -21,8 +22,9 @@ pub struct Zone {
     pub routers: HashSet<RouterId>,
     // index of the configurations
     pub configs: Vec<usize>,
+    num_of_routers: usize,
     hard_policy: HashSet<Condition>,
-    virtual_boundary: HashMap<RouterId, Vec<(Prefix, AsId)>>,
+    virtual_boundary: HashMap<RouterId, Vec<RouterId>>,
     virtual_network: Network,
 }
 
@@ -32,8 +34,9 @@ impl Zone {
             id: id,
             routers: HashSet::<RouterId>::new(),
             configs: Vec::<usize>::new(),
+            num_of_routers: 0,
             hard_policy: HashSet::<Condition>::new(),
-            virtual_boundary: HashMap::<RouterId, Vec<(Prefix, AsId)>>::new(),
+            virtual_boundary: HashMap::<RouterId, Vec<RouterId>>::new(),
             virtual_network: Network::new(),
         }
     }
@@ -42,6 +45,7 @@ impl Zone {
     }
     fn assign_routers(&mut self, routers: Vec<RouterId>) {
         routers.iter().for_each(|r| self.add_router(*r));
+        self.num_of_routers = routers.len();
     }
     // pub fn assign_configs(&mut self, configs: Vec<usize>) {
     //     configs.iter().for_each(|c| self.add_config(*c));
@@ -57,9 +61,22 @@ impl Zone {
             self.hard_policy.insert(condition);
         }
     }
-    fn add_virtual_boundary(&mut self, virtual_boundary_router: RouterId, prefix: Prefix, as_id: AsId) {
+    fn add_virtual_boundary(
+        &mut self,
+        virtual_boundary_router: RouterId,
+        external_router: RouterId,
+    ) -> Result<(), Error> {
+        if !self.routers.contains(&virtual_boundary_router) {
+            error!("Virtual router does not exist");
+            return Err(Error::ZoneSegmentationFailed);
+        }
         let ptr = self.virtual_boundary.entry(virtual_boundary_router).or_insert(vec![]);
-        ptr.push((prefix, as_id));
+        // This represents a symbolic link between the virtual boundary router and the external router
+        ptr.push(external_router);
+        Ok(())
+    }
+    fn get_routers(&self) -> HashSet<RouterId> {
+        self.routers.clone()
     }
     // This function uses zone info to extract settings from the actual network
     fn build_virtual_zone(&self, net: &Network) -> Result<Network, Error> {
@@ -97,7 +114,10 @@ impl StrategyDAG for StrategyZone {
     }
 
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        self.zones = self.zone_partition();
+        let mut zones = self.zone_partition();
+        self.construct_virtual_boundary(&mut zones)?;
+        self.zones = zones;
+
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
         let router_to_zone = zone_into_map(&self.zones);
 
@@ -118,18 +138,13 @@ impl StrategyDAG for StrategyZone {
                         extract_paths_for_router(*r, *p, &mut before_state, &mut after_state);
                     // also need to retrieve the AS info of this router
                     // the last hop must end at an external router
-                    let before_as_id =
-                        self.net.get_device(*before_path.last().unwrap()).unwrap_external().as_id();
-                    let after_as_id =
-                        self.net.get_device(*after_path.last().unwrap()).unwrap_external().as_id();
-
                     // segment routers on new route and old route into different zones
                     let before_zones = segment_path(&router_to_zone, &before_path)?;
                     let after_zones = segment_path(&router_to_zone, &after_path)?;
                     // create propositional variables and virtual boundaries using these zones
                     // build path-wise dependencies
-                    self.split_invariance(p, before_as_id, &before_zones, &router_to_zone)?;
-                    self.split_invariance(p, after_as_id, &after_zones, &router_to_zone)?;
+                    self.split_invariance(p, &before_zones, &router_to_zone)?;
+                    self.split_invariance(p, &after_zones, &router_to_zone)?;
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -174,8 +189,8 @@ impl StrategyZone {
             while level.len() != 0 {
                 let current_id = level.remove(0);
                 if !router_set.contains(&current_id) {
-                    let current_router = net.get_device(current_id).unwrap_internal();
                     router_set.insert(current_id);
+                    let current_router = net.get_device(current_id).unwrap_internal();
                     // Determine if any neighboring routers can be included in the zone
                     for (peer_id, session) in &current_router.bgp_sessions {
                         match *session {
@@ -201,14 +216,15 @@ impl StrategyZone {
             // push the current zone into the final collection of zones
             zones.insert(*id, zone);
         }
-        self.bind_config_to_zone(zones)
-        // for each internal router, reversely find its parents and grandparents
+        self.bind_config_to_zone(&mut zones);
+        // then we construct a virtual boundary by adding symbolic links between virtual boundary routers and external routers
+        zones
     }
 
-    fn bind_config_to_zone(&self, mut zones: HashMap<RouterId, Zone>) -> HashMap<RouterId, Zone> {
+    fn bind_config_to_zone(&self, zones: &mut HashMap<RouterId, Zone>) {
         // let net = &self.net;
         // let mut zone_configs = Vec::<ZoneConfig>::with_capacity(zones.len());
-        for (_, z) in &mut zones {
+        for (_, z) in zones {
             // println!("{:?}", z);
             // let mut zone_configs = Vec::<&ConfigModifier>::new();
             for (idx, config) in self.modifiers.iter().enumerate() {
@@ -282,16 +298,46 @@ impl StrategyZone {
                 }
             }
         }
-        zones
+        // zones
+    }
+
+    fn construct_virtual_boundary(&self, zones: &mut HashMap<RouterId, Zone>) -> Result<(), Error> {
+        let externs = self.net.get_external_routers();
+
+        // Inspect forwarding state each zone
+        for (_, z) in zones {
+            // let mut v_link = HashMap::<RouterId, Vec<RouterId>>::new();
+            let routers = z.get_routers();
+            for (r, e) in iproduct!(&routers, &externs) {
+                let nh = self.net
+                            .get_device(*r)
+                            .unwrap_internal()
+                            .igp_forwarding_table
+                            .get(e)
+                            .unwrap()
+                            .map(|x| x.0)
+                            .unwrap();
+                if !routers.contains(&nh) && nh != *e {
+                    // the next hop is outside of the zone
+                    // the current router is a virtual boundary router and we can establish a virtual link
+                    z.add_virtual_boundary(*r, *e)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn get_idx(&self, router: usize, external_router: usize, num_of_extern: usize) -> usize {
+        router * num_of_extern + external_router
     }
 
     fn split_invariance(
         &mut self,
         p: &Prefix,
-        as_id: AsId,
         segmented_paths: &Vec<Vec<NodeIndex>>,
         router_to_zone: &HashMap<RouterId, Vec<ZoneId>>,
     ) -> Result<(), Error> {
+        let external_router = segmented_paths.last().unwrap().last().unwrap();
         for x in segmented_paths {
             let router = x.first().unwrap();
             let virtual_boundary = x.last().unwrap();
@@ -309,8 +355,6 @@ impl StrategyZone {
                         if self.zones.contains_key(*z) {
                             let zone_ptr = self.zones.get_mut(*z).unwrap();
                             zone_ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
-                            // place virtual boundary router
-                            zone_ptr.add_virtual_boundary(*virtual_boundary, *p, as_id);
                         }
                     }
                 }
@@ -347,6 +391,8 @@ impl StrategyZone {
     }
 
     fn is_self_client(&self, self_id: &RouterId, other_id: &RouterId) -> bool {
+        // this function is somewhat problematic
+        // we can use a better way to rewrite it (with cache)
         let other_router = self.net.get_device(*other_id).unwrap_internal();
         if !other_router.bgp_sessions.contains_key(self_id) {
             return false;
@@ -384,7 +430,7 @@ impl StrategyZone {
 mod test {
     use crate::dep_groups::strategy_zone::{StrategyZone, ZoneId};
     use crate::example_networks::repetitions::Repetition10;
-    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork};
+    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm};
     // use crate::hard_policies::HardPolicy;
     // use crate::netsim::Network;
     use crate::netsim::RouterId;
@@ -416,6 +462,21 @@ mod test {
             StrategyZone::new(net, init_config.get_diff(&final_config).modifiers, policy, None)
                 .unwrap();
         strategy.work(Stopper::new()).expect("Panicked");
+    }
+
+    #[test]
+    fn test_sigcomm_net_partition() {
+        let net = Sigcomm::net(0);
+        let end_config = Sigcomm::final_config(&net, 0);
+        let hard_policy = Sigcomm::get_policy(&net, 0);
+
+        let strategy = StrategyZone::synthesize(
+            net, 
+            end_config,
+            hard_policy, 
+            None, 
+            Stopper::default()
+        );
     }
 
     #[test]
