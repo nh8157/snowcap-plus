@@ -1942,13 +1942,13 @@ mod test {
 
     #[test]
     fn test_virtual_network_gen() {
-        let mut net = SimpleNet::net(0);
+        let net = SimpleNet::net(0);
         let r1 = net.get_router_id("r1").unwrap();
         let r2 = net.get_router_id("r2").unwrap();
-        let r3 = net.get_router_id("r3").unwrap();
-        let r4 = net.get_router_id("r4").unwrap();
+        // let r3 = net.get_router_id("r3").unwrap();
+        // let r4 = net.get_router_id("r4").unwrap();
         let e1 = net.get_router_id("e1").unwrap();
-        let e4 = net.get_router_id("e4").unwrap();
+        // let e4 = net.get_router_id("e4").unwrap();
         let route = net.get_route(r2, Prefix(0)).unwrap();
         assert_eq!(route, vec![r2, r1, e1]);
         // let zone_routers = vec![r3, r2];
