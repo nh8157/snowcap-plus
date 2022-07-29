@@ -100,26 +100,27 @@ impl ExampleNetwork for SimpleNet {
         let e1 = net.get_router_id("e1").unwrap();
         let e4 = net.get_router_id("e4").unwrap();
 
-        c.add(StaticRoute {
-            router: r1,
-            prefix: Prefix(0),
-            target: e1,
-        }).unwrap();
-        c.add(StaticRoute {
-            router: r2,
-            prefix: Prefix(0),
-            target: r1
-        }).unwrap();
-        c.add(StaticRoute { 
-            router: r3, 
-            prefix: Prefix(0), 
-            target: r1 
-        }).unwrap();
-        c.add(StaticRoute {
-            router: r4,
-            prefix: Prefix(0),
-            target: r2
-        }).unwrap();
+        // This static route setting is useless
+        // c.add(StaticRoute {
+        //     router: r1,
+        //     prefix: Prefix(0),
+        //     target: e1,
+        // }).unwrap();
+        // c.add(StaticRoute {
+        //     router: r2,
+        //     prefix: Prefix(0),
+        //     target: r1
+        // }).unwrap();
+        // c.add(StaticRoute { 
+        //     router: r3, 
+        //     prefix: Prefix(0), 
+        //     target: r1 
+        // }).unwrap();
+        // c.add(StaticRoute {
+        //     router: r4,
+        //     prefix: Prefix(0),
+        //     target: r2
+        // }).unwrap();
 
         c.add(IgpLinkWeight { source: r1, target: r2, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { source: r1, target: r3, weight: 1.0 }).unwrap();
@@ -175,26 +176,26 @@ impl ExampleNetwork for SimpleNet {
         let e1 = net.get_router_id("e1").unwrap();
         let e4 = net.get_router_id("e4").unwrap();
 
-        c.add(StaticRoute {
-            router: r1,
-            prefix: Prefix(0),
-            target: e1,
-        }).unwrap();
-        c.add(StaticRoute {
-            router: r2,
-            prefix: Prefix(0),
-            target: r3
-        }).unwrap();
-        c.add(StaticRoute { 
-            router: r3, 
-            prefix: Prefix(0), 
-            target: r1 
-        }).unwrap();
-        c.add(StaticRoute {
-            router: r4,
-            prefix: Prefix(0),
-            target: r3
-        }).unwrap();
+        // c.add(StaticRoute {
+        //     router: r1,
+        //     prefix: Prefix(0),
+        //     target: e1,
+        // }).unwrap();
+        // c.add(StaticRoute {
+        //     router: r2,
+        //     prefix: Prefix(0),
+        //     target: r3
+        // }).unwrap();
+        // c.add(StaticRoute { 
+        //     router: r3, 
+        //     prefix: Prefix(0), 
+        //     target: r1 
+        // }).unwrap();
+        // c.add(StaticRoute {
+        //     router: r4,
+        //     prefix: Prefix(0),
+        //     target: r3
+        // }).unwrap();
 
         c.add(IgpLinkWeight { source: r1, target: r2, weight: 1.0 }).unwrap();
         c.add(IgpLinkWeight { source: r1, target: r3, weight: 1.0 }).unwrap();

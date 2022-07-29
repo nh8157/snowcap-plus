@@ -69,7 +69,7 @@ pub struct Router {
     /// Device denied access (default None)
     acl_deny: Vec<RouterId>,
     /// Indicates whether the current router is a virtual boundary router
-    virtual_boundary: Option<HashMap<Prefix, RouterId>>,
+    virtual_link: Option<HashSet<RouterId>>,
 }
 
 impl Clone for Router {
@@ -90,7 +90,7 @@ impl Clone for Router {
             undo_stack: Vec::new(),
             acl_accept: self.acl_accept.clone(),
             acl_deny: self.acl_deny.clone(),
-            virtual_boundary: self.virtual_boundary.clone(),
+            virtual_link: self.virtual_link.clone(),
         }
     }
 }
@@ -114,7 +114,7 @@ impl Router {
             undo_stack: Vec::new(),
             acl_accept: Vec::new(),
             acl_deny: Vec::new(),
-            virtual_boundary: None,
+            virtual_link: None,
         }
     }
 
@@ -151,18 +151,18 @@ impl Router {
         }
     }
 
-    pub(crate) fn construct_virtual_boundary(
+    pub(crate) fn construct_virtual_link(
         &mut self,
-        prefix_to_external: &Vec<(Prefix, RouterId)>,
+        prefix_to_external: &Vec<RouterId>,
     ) -> Result<(), DeviceError> {
-        let virtual_boundary: HashMap<_, _> = prefix_to_external.to_owned().into_iter().collect();
-        self.virtual_boundary = Some(virtual_boundary);
+        let virtual_link: HashSet<_> = prefix_to_external.to_owned().into_iter().collect();
+        self.virtual_link = Some(virtual_link);
         Ok(())
     }
 
-    pub(crate) fn destroy_virtual_boundary(&mut self) -> Result<(), DeviceError> {
-        if self.virtual_boundary.is_some() {
-            self.virtual_boundary = None;
+    pub(crate) fn destroy_virtual_link(&mut self) -> Result<(), DeviceError> {
+        if self.virtual_link.is_some() {
+            self.virtual_link = None;
             return Ok(());
         }
         Err(DeviceError::VirtualBoundaryDestructionFailed)
@@ -388,15 +388,24 @@ impl Router {
                 if let Some(target) = self.static_routes.get(&prefix) {
                     return Some(*target);
                 };
-                if self.virtual_boundary.is_some() {
-                    let ptr = self.virtual_boundary.as_ref().unwrap();
-                    if let Some(nh) = ptr.get(&prefix) {
-                        return Some(*nh);
-                    }
-                }
+                // This would act as static route
+                // if self.virtual_boundary.is_some() {
+                //     let ptr = self.virtual_boundary.as_ref().unwrap();
+                //     if let Some(nh) = ptr.get(&prefix) {
+                //         return Some(*nh);
+                //     }
+                // }
                 // then, check the bgp table
                 match self.bgp_rib.get(&prefix) {
                     Some(entry) => {
+                        // instead, we can override the igp_forwarding table here
+                        if self.virtual_link.is_some() {
+                            let v_link = self.virtual_link.as_ref().unwrap();
+                            match v_link.get(&entry.route.next_hop) {
+                                Some(r) => return Some(*r),
+                                _ => {}
+                            }
+                        }
                         self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0)
                     }
                     None => None,

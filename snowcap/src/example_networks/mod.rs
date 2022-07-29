@@ -64,6 +64,9 @@ pub use abilene_net::AbileneNetwork;
 mod variable_abilene_net;
 pub use variable_abilene_net::VariableAbileneNetwork;
 
+mod sigcomm;
+pub use sigcomm::Sigcomm;
+
 /// Trait for easier access to example networks.
 pub trait ExampleNetwork {
     /// Get the network configured with the chosen initial variant.

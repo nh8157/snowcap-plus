@@ -561,13 +561,14 @@ impl Network {
     pub fn construct_virtual_zone(
         &mut self,
         routers: &Vec<RouterId>,
-        virtual_zone: &HashMap<RouterId, Vec<(Prefix, RouterId)>>,
-    ) -> Result<Network, NetworkError> {
+        virtual_zone: &HashMap<RouterId, Vec<RouterId>>,
+    ) -> Result<(), NetworkError> {
         // instead of deleting unused routers
-        // we can keep all routers, but instead 
-        // convert the network into a zone by adding 
+        // we can keep all routers, but instead
+        // convert the network into a zone by adding
         // symbolic link to the virtual boundary routers
         if self.virtual_zone.is_some() {
+            println!("zone already exists");
             error!("Zone already exists");
             return Err(NetworkError::ZoneConstructionFailed);
         }
@@ -576,8 +577,9 @@ impl Network {
         for (r, v) in virtual_zone {
             // check if the router is in the network
             if let Some(router) = self.routers.get_mut(r) {
-                router.construct_virtual_boundary(v)?;
+                router.construct_virtual_link(v)?;
             } else {
+                println!("No router exists");
                 error!("No such router exists");
                 return Err(NetworkError::ZoneConstructionFailed);
             }
@@ -639,10 +641,10 @@ impl Network {
         //     new_net.routers.remove(*r);
         //     // if the router is a boundary router, then we also need to remove the external router it connects to
         // }
-        Err(NetworkError::ZoneConstructionFailed)
+        Ok(())
     }
 
-    /// This function destroys a virtual zone 
+    /// This function destroys a virtual zone
 
     // ********************
     // * Helper Functions *
@@ -1928,5 +1930,68 @@ impl PartialEq for Network {
         }
 
         self.weak_eq(other)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::example_networks::{ExampleNetwork, SimpleNet, Sigcomm};
+    use crate::netsim::{Prefix, RouterId,};
+    // use petgraph::prelude::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_virtual_network_gen() {
+        let mut net = SimpleNet::net(0);
+        let r1 = net.get_router_id("r1").unwrap();
+        let r2 = net.get_router_id("r2").unwrap();
+        let r3 = net.get_router_id("r3").unwrap();
+        let r4 = net.get_router_id("r4").unwrap();
+        let e1 = net.get_router_id("e1").unwrap();
+        let e4 = net.get_router_id("e4").unwrap();
+        let route = net.get_route(r2, Prefix(0)).unwrap();
+        assert_eq!(route, vec![r2, r1, e1]);
+        // let zone_routers = vec![r3, r2];
+        // let mut virtual_zone = HashMap::<RouterId, Vec<(Prefix, RouterId)>>::new();
+        // virtual_zone.insert(r2, vec![(Prefix(0), e1)]);
+        // virtual_zone.insert(r3, vec![(Prefix(0), e1)]);
+        // net.construct_virtual_zone(&zone_routers, &virtual_zone)
+        //     .expect("Virtual zone construction failed");
+        // let route_zone = net.get_route(r2, Prefix(0)).unwrap();
+        // assert_eq!(route_zone, vec![r2, e1]);
+    }
+
+    #[test]
+    fn test_virtual_net_gen_custom_topo() {
+        let mut net = Sigcomm::net(0);
+        let e1 = net.get_router_id("e1").unwrap();
+        let e2 = net.get_router_id("e2").unwrap();
+        let b1 = net.get_router_id("b1").unwrap();
+        let b2 = net.get_router_id("b2").unwrap();
+        let r1 = net.get_router_id("r1").unwrap();
+        let r2 = net.get_router_id("r2").unwrap();
+        let t1 = net.get_router_id("t1").unwrap();
+        let t2 = net.get_router_id("t2").unwrap();
+        let route1 = net.get_route(t1, Prefix(0)).unwrap();
+        let route2 = net.get_route(t2, Prefix(0)).unwrap();
+        let route3 = net.get_route(r1, Prefix(0)).unwrap();
+        let route4 = net.get_route(r2, Prefix(0)).unwrap();
+        assert_eq!(route1, vec![t1, b1, e1]);
+        assert_eq!(route2, vec![t2, b2, e2]);
+        assert_eq!(route3, vec![r1, b2, e2]);
+        assert_eq!(route4, vec![r2, r1, b2, e2]);
+
+        let zone1 = vec![b2, r2, t2];
+        let mut virtual_boundary_zone1 = HashMap::<RouterId, Vec<RouterId>>::new();
+        virtual_boundary_zone1.insert(t2, vec![e1]);
+        virtual_boundary_zone1.insert(r2, vec![e1, e2]);
+        net.construct_virtual_zone(&zone1, &virtual_boundary_zone1).unwrap();
+
+        assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e2]));
+        net.set_config(&Sigcomm
+            ::final_config(&net, 0)).unwrap();
+
+        assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e1]));
+        assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, e1]));
     }
 }
