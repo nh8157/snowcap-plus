@@ -21,16 +21,19 @@
 //! functions are necessary for reducing the dependency group, and expanding it. However, it is
 //! agnostic to wether we try to optimize for soft-policies, or only consider hard-policy.
 
+use crate::dep_groups::strategy_zone::{Zone, ZoneId};
 use crate::hard_policies::{HardPolicy, PolicyError, WatchErrors};
-use crate::dep_groups::strategy_zone::{ZoneId, Zone};
 use crate::netsim::config::ConfigModifier;
-use crate::netsim::{printer, Network, NetworkError, RouterId, Prefix, ForwardingState};
+// use crate::netsim::router::Router;
+use crate::netsim::{
+    printer, DeviceError, ForwardingState, Network, NetworkError, Prefix, RouterId, NetworkDevice,
+};
 use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
-use std::collections::{HashSet, HashMap};
 use log::*;
+use std::collections::{HashMap, HashSet};
 
-use std::time::{Duration, SystemTime, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// # Finding Dependencies
 ///
@@ -677,7 +680,10 @@ fn generate_watch_errors(hard_policy: &Option<HardPolicy>) -> WatchErrors {
     }
 }
 
-pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<RouterId>) -> Result<Vec<Vec<RouterId>>, Error> {
+pub(super) fn segment_path(
+    map: &HashMap<RouterId, Vec<ZoneId>>,
+    path: &Vec<RouterId>,
+) -> Result<Vec<Vec<RouterId>>, Error> {
     let mut zones = Vec::<Vec<RouterId>>::new();
     let mut cached_set = HashSet::<&RouterId>::new();
     // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
@@ -702,7 +708,7 @@ pub(super) fn segment_path(map: &HashMap<RouterId, Vec<ZoneId>>, path: &Vec<Rout
     }
     if zones.len() == 0 {
         error!("Failure detected when trying to segment path");
-        return Err(Error::ZoneSegmentationFailed)
+        return Err(Error::ZoneSegmentationFailed);
     }
     Ok(zones)
 }
@@ -728,4 +734,43 @@ pub(crate) fn zone_into_map(zone: &HashMap<RouterId, Zone>) -> HashMap<RouterId,
         });
     }
     map
+}
+
+pub(crate) fn bgp_zone_extractor(internal_router_id: RouterId, net: &Network) -> Result<HashSet<RouterId>, NetworkError> {
+    if let NetworkDevice::InternalRouter(internal_router) = net.get_device(internal_router_id) {
+        let mut zone: HashSet<_> = vec![internal_router_id].into_iter().collect();
+        for (&peer_id, session_type) in &internal_router.bgp_sessions {
+            if session_type.is_ibgp() {
+                zone.insert(peer_id);
+                bgp_zone_extractor_recursion(internal_router_id, peer_id, net, &mut zone)?;
+            }
+        }
+        return Ok(zone);
+    }
+    Err(NetworkError::DeviceIsExternalRouter(internal_router_id))
+}
+
+// Recursively extracts the route from the propagation map
+fn bgp_zone_extractor_recursion(
+    child_router_id: RouterId,
+    current_router_id: RouterId,
+    net: &Network,
+    zone: &mut HashSet<RouterId>,
+) -> Result<(), DeviceError> {
+    if let NetworkDevice::InternalRouter(current_router) = net.get_device(current_router_id) {
+        let to_session = current_router.bgp_sessions.get(&child_router_id);
+        if to_session.is_none() {
+            return Err(DeviceError::RouterNotFound(child_router_id));
+        }
+        for (parent_router_id, _) in &current_router.bgp_sessions {
+            // println!("from: {}, to: {}", net.get_router_name(*parent_router_id).unwrap(), net.get_router_name(current_router_id).unwrap());
+            if net.get_device(*parent_router_id).is_internal() &&
+                current_router.should_export_route(*parent_router_id, child_router_id, *to_session.unwrap()).unwrap() &&
+                zone.insert(*parent_router_id) {
+                    bgp_zone_extractor_recursion(current_router_id, *parent_router_id, net, zone)?;
+                }
+        }
+        return Ok(());
+    }
+    Err(DeviceError::RouterNotFound(current_router_id))
 }

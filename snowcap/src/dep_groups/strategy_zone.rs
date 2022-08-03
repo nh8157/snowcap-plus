@@ -117,6 +117,7 @@ impl StrategyDAG for StrategyZone {
         let mut zones = self.zone_partition();
         self.construct_virtual_boundary(&mut zones)?;
         self.zones = zones;
+        println!("{:?}", self.zones);
 
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
         let router_to_zone = zone_into_map(&self.zones);
@@ -167,7 +168,7 @@ impl StrategyZone {
             let router = net.get_device(*id).unwrap_internal();
 
             // Determine if the current router can no longer propagate the advertisement
-            for (peer_id, session_type) in &router.bgp_sessions {
+            '_inner: for (peer_id, session_type) in &router.bgp_sessions {
                 match *session_type {
                     // Only the router that is not a route reflector nor a boundary router can be added
                     BgpSessionType::EBgp => continue 'outer,
@@ -183,35 +184,35 @@ impl StrategyZone {
             }
 
             // Runs a BFS to identify parents, store the next level in a vector (queue)
-            let mut level = vec![*id];
+            // let mut level = vec![*id];
             let mut zone = Zone::new(*id);
-            let mut router_set = HashSet::<RouterId>::new();
-            while level.len() != 0 {
-                let current_id = level.remove(0);
-                if !router_set.contains(&current_id) {
-                    router_set.insert(current_id);
-                    let current_router = net.get_device(current_id).unwrap_internal();
-                    // Determine if any neighboring routers can be included in the zone
-                    for (peer_id, session) in &current_router.bgp_sessions {
-                        match *session {
-                            // Current router is the client of its route reflector peer
-                            BgpSessionType::IBgpClient => level.push(*peer_id),
-                            // Current router is a peer of the peer
-                            // Peer is a valid zone router iff it is a boundary router or a route reflector
-                            BgpSessionType::IBgpPeer => {
-                                // Determine if the peer router is a client of the current router
-                                if self.is_client_or_boundary(peer_id)
-                                    && !self.is_self_client(&current_id, peer_id)
-                                {
-                                    level.push(*peer_id);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    // }
-                }
-            }
+            let router_set = bgp_zone_extractor(*id, net).unwrap();
+            // while level.len() != 0 {
+            //     let current_id = level.remove(0);
+            //     if !router_set.contains(&current_id) {
+            //         router_set.insert(current_id);
+            //         let current_router = net.get_device(current_id).unwrap_internal();
+            //         // Determine if any neighboring routers can be included in the zone
+            //         for (peer_id, session) in &current_router.bgp_sessions {
+            //             match *session {
+            //                 // Current router is the client of its route reflector peer
+            //                 BgpSessionType::IBgpClient => level.push(*peer_id),
+            //                 // Current router is a peer of the peer
+            //                 // Peer is a valid zone router iff it is a boundary router or a route reflector
+            //                 BgpSessionType::IBgpPeer => {
+            //                     // Determine if the peer router is a client of the current router
+            //                     if self.is_client_or_boundary(peer_id)
+            //                         && !self.is_self_client(&current_id, peer_id)
+            //                     {
+            //                         level.push(*peer_id);
+            //                     }
+            //                 }
+            //                 _ => {}
+            //             }
+            //         }
+            //         // }
+            //     }
+            // }
             zone.assign_routers(router_set.into_iter().collect());
             // push the current zone into the final collection of zones
             zones.insert(*id, zone);
@@ -302,22 +303,23 @@ impl StrategyZone {
     }
 
     fn construct_virtual_boundary(&self, zones: &mut HashMap<RouterId, Zone>) -> Result<(), Error> {
-        let externs = self.net.get_external_routers();
+        let externals = self.net.get_external_routers();
 
-        // Inspect forwarding state each zone
+        // Inspect forwarding state of each zone
         for (_, z) in zones {
             // let mut v_link = HashMap::<RouterId, Vec<RouterId>>::new();
-            let routers = z.get_routers();
-            for (r, e) in iproduct!(&routers, &externs) {
-                let nh = self.net
-                            .get_device(*r)
-                            .unwrap_internal()
-                            .igp_forwarding_table
-                            .get(e)
-                            .unwrap()
-                            .map(|x| x.0)
-                            .unwrap();
-                if !routers.contains(&nh) && nh != *e {
+            let internals = z.get_routers();
+            for (r, e) in iproduct!(&internals, &externals) {
+                let nh = self
+                    .net
+                    .get_device(*r)
+                    .unwrap_internal()
+                    .igp_forwarding_table
+                    .get(e)
+                    .unwrap()
+                    .map(|x| x.0)
+                    .unwrap();
+                if !internals.contains(&nh) && nh != *e {
                     // the next hop is outside of the zone
                     // the current router is a virtual boundary router and we can establish a virtual link
                     z.add_virtual_boundary(*r, *e)?;
@@ -325,10 +327,6 @@ impl StrategyZone {
             }
         }
         Ok(())
-    }
-
-    fn get_idx(&self, router: usize, external_router: usize, num_of_extern: usize) -> usize {
-        router * num_of_extern + external_router
     }
 
     fn split_invariance(
@@ -341,9 +339,7 @@ impl StrategyZone {
         for x in segmented_paths {
             let router = x.first().unwrap();
             let virtual_boundary = x.last().unwrap();
-            let router_zone = router_to_zone.get(router);
-            let virtual_boundary_zone = router_to_zone.get(virtual_boundary);
-            match (router_zone, virtual_boundary_zone) {
+            match (router_to_zone.get(router), router_to_zone.get(virtual_boundary)) {
                 // skip the cases where any one of them belong to different zones
                 (Some(zone1), Some(zone2)) => {
                     let set1: HashSet<_> = zone1.into_iter().collect();
@@ -429,6 +425,7 @@ impl StrategyZone {
 #[cfg(test)]
 mod test {
     use crate::dep_groups::strategy_zone::{StrategyZone, ZoneId};
+    use crate::dep_groups::utils::bgp_zone_extractor;
     use crate::example_networks::repetitions::Repetition10;
     use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm};
     // use crate::hard_policies::HardPolicy;
@@ -437,7 +434,7 @@ mod test {
     use crate::strategies::StrategyDAG;
     use crate::Stopper;
     use petgraph::prelude::NodeIndex;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::vec;
 
     #[test]
@@ -469,22 +466,31 @@ mod test {
         let net = Sigcomm::net(0);
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
-
-        let strategy = StrategyZone::synthesize(
-            net, 
-            end_config,
-            hard_policy, 
-            None, 
-            Stopper::default()
-        );
+        StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::default())
+            .expect("Error while generating strategy");
     }
 
     #[test]
-    fn test_firewall_net_partition() {
-        // let net = FirewallNet::net(0);
-        // let map = strategy_zone::zone_partition(&net);
-        // // println!("{:?}", map);
-        // strategy_zone::zone_pretty_print(&net, &map);
+    fn test_bgp_dfs() {
+        let net = Sigcomm::net(0);
+        // let external_router = net.get_external_routers()[0];
+        // let device = net.get_device(external_router).unwrap_external();
+
+        let b1 = net.get_router_id("b1").unwrap();
+        let b2 = net.get_router_id("b2").unwrap();
+        let t1 = net.get_router_id("t1").unwrap();
+        let t2 = net.get_router_id("t2").unwrap();
+        let r1 = net.get_router_id("r1").unwrap();
+        let r2 = net.get_router_id("r2").unwrap();
+
+        let set1 = bgp_zone_extractor(t1, &net);
+        let set2 = bgp_zone_extractor(t2, &net);
+
+        let res1: HashSet<_> = vec![b1, b2, r1, t1].into_iter().collect();
+        let res2: HashSet<_> = vec![b2, r2, t2].into_iter().collect();
+
+        assert_eq!(set1, Ok(res1));
+        assert_eq!(set2, Ok(res2));
     }
 
     #[test]
