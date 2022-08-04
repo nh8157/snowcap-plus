@@ -40,7 +40,8 @@ pub struct ExternalRouter {
     name: String,
     router_id: RouterId,
     as_id: AsId,
-    neighbors: Vec<RouterId>,
+    /// Vector that defines neighboring routers
+    pub neighbors: Vec<RouterId>,
     acl_accept: Vec<RouterId>,
     acl_deny: Vec<RouterId>,
     active_routes: Vec<BgpRoute>,

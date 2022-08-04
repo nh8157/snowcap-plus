@@ -115,6 +115,7 @@ impl StrategyDAG for StrategyZone {
 
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         let mut zones = self.zone_partition();
+        self.bind_config_to_zone(&mut zones);
         self.construct_virtual_boundary(&mut zones)?;
         self.zones = zones;
         println!("{:?}", self.zones);
@@ -187,37 +188,11 @@ impl StrategyZone {
             // let mut level = vec![*id];
             let mut zone = Zone::new(*id);
             let router_set = bgp_zone_extractor(*id, net).unwrap();
-            // while level.len() != 0 {
-            //     let current_id = level.remove(0);
-            //     if !router_set.contains(&current_id) {
-            //         router_set.insert(current_id);
-            //         let current_router = net.get_device(current_id).unwrap_internal();
-            //         // Determine if any neighboring routers can be included in the zone
-            //         for (peer_id, session) in &current_router.bgp_sessions {
-            //             match *session {
-            //                 // Current router is the client of its route reflector peer
-            //                 BgpSessionType::IBgpClient => level.push(*peer_id),
-            //                 // Current router is a peer of the peer
-            //                 // Peer is a valid zone router iff it is a boundary router or a route reflector
-            //                 BgpSessionType::IBgpPeer => {
-            //                     // Determine if the peer router is a client of the current router
-            //                     if self.is_client_or_boundary(peer_id)
-            //                         && !self.is_self_client(&current_id, peer_id)
-            //                     {
-            //                         level.push(*peer_id);
-            //                     }
-            //                 }
-            //                 _ => {}
-            //             }
-            //         }
-            //         // }
-            //     }
-            // }
             zone.assign_routers(router_set.into_iter().collect());
             // push the current zone into the final collection of zones
             zones.insert(*id, zone);
         }
-        self.bind_config_to_zone(&mut zones);
+        // self.bind_config_to_zone(&mut zones);
         // then we construct a virtual boundary by adding symbolic links between virtual boundary routers and external routers
         zones
     }

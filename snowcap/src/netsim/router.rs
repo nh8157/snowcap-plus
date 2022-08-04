@@ -165,6 +165,7 @@ impl Router {
             self.virtual_link = None;
             return Ok(());
         }
+        error!("No virtual link exists");
         Err(DeviceError::VirtualBoundaryDestructionFailed)
     }
     /// handle an `Event`, and enqueue several resulting events. Returns Ok(true) if the forwarding
@@ -1209,7 +1210,7 @@ impl Router {
 
     /// returns a bool which tells to export the route to the target, which was advertised by the
     /// source.
-    fn should_export_route(
+    pub fn should_export_route(
         &self,
         from: RouterId,
         to: RouterId,
