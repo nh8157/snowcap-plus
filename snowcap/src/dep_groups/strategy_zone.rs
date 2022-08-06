@@ -136,40 +136,13 @@ impl StrategyDAG for StrategyZone {
     }
 
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
-        // Need to clean up this code
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
-        // let mut zones = self.partition_zone();
-        // self.bind_config_to_zone(&mut zones);
-        // self.zones = zones;
+
         self.init_zones()?;
 
         // Iterate over each zone identified
         for zone in self.zones.values_mut() {
             zone.set_emulated_network(&mut before_state, &mut after_state)?;
-            // Step 1: For each zone, iterate through all routers, identify virtual boundary routers
-            // zone.init_virtual_boundary_routers()?;
-
-            // // Step 2: For each boundary device, get their next hop to reach prefixes in the network before and after reconfiguration
-            // // !!! This algorithm may need further improvement !!!
-            // for virtual_boundary_router in zone.get_virtual_boundary_routers() {
-            //     let mut virtual_links = HashMap::<RouterId, HashSet<RouterId>>::new();
-            //     for prefix in self.net.get_known_prefixes() {
-            //         let route_before = before_state.get_route(virtual_boundary_router, *prefix)?;
-            //         if !zone.get_routers().contains(&route_before[1]) {
-            //             // insert this virtual link into the map
-            //             let ptr = virtual_links.entry(route_before[1]).or_insert(HashSet::<RouterId>::new());
-            //             ptr.insert(*route_before.last().unwrap());
-            //         }
-            //         let route_after = after_state.get_route(virtual_boundary_router, *prefix)?;
-            //         if !zone.get_routers().contains(&route_after[1]) {
-            //             let ptr = virtual_links.entry(route_after[1]).or_insert(HashSet::<RouterId>::new());
-            //             ptr.insert(*route_after.last().unwrap());
-            //         }
-            //     }
-            //     println!("{:?}", virtual_links);
-            //     // Set this virtual zone onto the corresponding boundary router
-            //     zone.emulated_network.set_virtual_links_for_router(virtual_boundary_router, virtual_links)?;
-            // }
         }
 
         let router_to_zone = zone_into_map(&self.zones);
@@ -205,7 +178,6 @@ impl StrategyDAG for StrategyZone {
                 }
             }
         }
-        // println!("{:?}", self.zones);
         Ok(Dag::<ConfigModifier, u32, u32>::new())
     }
 }
