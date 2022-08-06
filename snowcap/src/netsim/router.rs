@@ -68,8 +68,10 @@ pub struct Router {
     acl_accept: Vec<RouterId>,
     /// Device denied access (default None)
     acl_deny: Vec<RouterId>,
-    /// Indicates whether the current router is a virtual boundary router
-    virtual_link: Option<HashSet<RouterId>>,
+    /// This field would be some if it is a virtual boundary 
+    /// Each key maps to a physical neighbor of the current router
+    /// Corresponding value describes external routers the neighboring router has connection to
+    virtual_link: Option<HashMap<RouterId, HashSet<RouterId>>>,
 }
 
 impl Clone for Router {
@@ -151,12 +153,38 @@ impl Router {
         }
     }
 
-    pub(crate) fn construct_virtual_link(
+    /// This function takes a vector that contains routers that are outside of the current zone and insert them into the virtual_link hashmap
+    pub(crate) fn init_virtual_links(&mut self, outside_routers: Vec<RouterId>) -> Result<(), DeviceError> {
+        if self.virtual_link.is_some() {
+            error!("Virtual boundary already exists");
+            return Err(DeviceError::VirtualBoundaryConstructionFailed);
+        }
+        self.virtual_link = Some(outside_routers.into_iter().map(|x| (x, HashSet::<RouterId>::new())).collect());
+        Ok(())
+    }
+
+    pub(crate) fn set_virtual_links(
         &mut self,
-        prefix_to_external: &Vec<RouterId>,
+        virtual_links: HashMap<RouterId, HashSet<RouterId>>,
+        // prefix_to_external: &Vec<RouterId>,
     ) -> Result<(), DeviceError> {
-        let virtual_link: HashSet<_> = prefix_to_external.to_owned().into_iter().collect();
-        self.virtual_link = Some(virtual_link);
+        if self.virtual_link.is_none() {
+            println!("Error1");
+            error!("Virtual link not initialized");
+            return Err(DeviceError::VirtualBoundaryConstructionFailed);
+        }
+        for (peer, external_router) in virtual_links {
+            match self.virtual_link.as_mut().unwrap().get_mut(&peer) {
+                Some(peer_set) => {
+                    *peer_set = external_router;
+                },  
+                None => {
+                    println!("Error2");
+                    error!("Peer is not external");
+                    return Err(DeviceError::VirtualBoundaryConstructionFailed);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -389,25 +417,21 @@ impl Router {
                 if let Some(target) = self.static_routes.get(&prefix) {
                     return Some(*target);
                 };
-                // This would act as static route
-                // if self.virtual_boundary.is_some() {
-                //     let ptr = self.virtual_boundary.as_ref().unwrap();
-                //     if let Some(nh) = ptr.get(&prefix) {
-                //         return Some(*nh);
-                //     }
-                // }
-                // then, check the bgp table
                 match self.bgp_rib.get(&prefix) {
                     Some(entry) => {
-                        // instead, we can override the igp_forwarding table here
-                        if self.virtual_link.is_some() {
-                            let v_link = self.virtual_link.as_ref().unwrap();
-                            match v_link.get(&entry.route.next_hop) {
-                                Some(r) => return Some(*r),
-                                _ => {}
+                        let forwarding_option = self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0);
+                        // First check if forwarding option is valid
+                        if let Some(nh) = forwarding_option {
+                            // If self is a virtual boundary router and the next hop is outside of the boundary
+                            if self.virtual_link.is_some() && self.virtual_link.as_ref().unwrap().contains_key(&nh) {
+                                // Returns if this edge is symbolically linked to a boundary router
+                                // None indicates the link has no connection to the boundary router
+                                // Some otherwise (contains the boundary router directly as the next hop)
+                                return self.virtual_link.as_ref().unwrap().get(&nh).unwrap().get(&entry.route.next_hop).map(|x| *x);
                             }
-                        }
-                        self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0)
+                        };
+                        return forwarding_option;
+                        // instead, we can override the igp_forwarding table here
                     }
                     None => None,
                 }
@@ -911,6 +935,10 @@ impl Router {
             }
         }
         true
+    }
+
+    pub(crate) fn is_virtual_boundary_router(&self) -> bool {
+        self.virtual_link.is_some()
     }
 
     // -----------------

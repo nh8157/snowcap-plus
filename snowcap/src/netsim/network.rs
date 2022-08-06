@@ -154,7 +154,7 @@ pub struct Network {
     queue: EventQueue,
     event_history: Vec<(Event, Option<usize>)>,
     skip_queue: bool,
-    virtual_zone: Option<Vec<RouterId>>,
+    zone: Option<Vec<RouterId>>,
 }
 
 // implements the public trait clone
@@ -174,7 +174,7 @@ impl Clone for Network {
             // does not clone the event history
             event_history: Vec::new(),
             skip_queue: false,
-            virtual_zone: self.virtual_zone.clone(),
+            zone: self.zone.clone(),
         }
     }
 }
@@ -201,7 +201,7 @@ impl Network {
             queue: EventQueue::new(),
             event_history: Vec::new(),
             skip_queue: false,
-            virtual_zone: None,
+            zone: None,
         }
     }
 
@@ -557,90 +557,51 @@ impl Network {
         ForwardingState::from_net_new(self)
     }
 
-    /// Returns an emulated object of the zone
-    pub fn construct_virtual_zone(
-        &mut self,
-        routers: &Vec<RouterId>,
-        virtual_zone: &HashMap<RouterId, Vec<RouterId>>,
-    ) -> Result<(), NetworkError> {
-        // instead of deleting unused routers
-        // we can keep all routers, but instead
+    /// This function initializes a zone by assigning the zone variable the correct vector,
+    /// then return its corresponding virtual boundaries
+    pub fn init_zone(&mut self, zone: &Vec<RouterId>) -> Result<Vec<RouterId>, NetworkError> {
         // convert the network into a zone by adding
         // symbolic link to the virtual boundary routers
-        if self.virtual_zone.is_some() {
-            println!("zone already exists");
+        if self.zone.is_some() {
             error!("Zone already exists");
             return Err(NetworkError::ZoneConstructionFailed);
         }
-        self.virtual_zone = Some(routers.to_owned());
 
-        for (r, v) in virtual_zone {
-            // check if the router is in the network
-            if let Some(router) = self.routers.get_mut(r) {
-                router.construct_virtual_link(v)?;
-            } else {
-                println!("No router exists");
-                error!("No such router exists");
-                return Err(NetworkError::ZoneConstructionFailed);
+        let zone_set: HashSet<_> = zone.to_owned().into_iter().collect();
+        let mut v_boundary = Vec::<RouterId>::new();
+
+        for r in &zone_set {
+            match self.neighbors_outside_of_zone(*r, &zone_set) {
+                None => {},
+                Some(v_link) => {
+                    v_boundary.push(*r);
+                    self.routers.get_mut(r).unwrap().init_virtual_links(v_link)?;
+                },
             }
         }
-        /*
-        1. Remove routers from self.net, self.routers
-        2. Remove links from self.net, self.links
-        3. Initialize external router at the virtual boundary
-        4. (UNSURE) modify self.config/event_history/queue?
-        */
-        // let mut new_net = self.clone();
-        // let all_routers: HashSet<_> = self.routers.keys().collect();
-        // let zone_routers: HashSet<_> = routers.iter().collect();
-        // let router_diff: Vec<_> = all_routers.difference(&zone_routers).collect();
-        // if router_diff.len() == 0 {
-        //     error!("Cannot find common router");
-        //     return Err(NetworkError::ZoneConstructionFailed);
-        // }
-        // // Initialize virtual external routers
-        // // How should we represent the externality of these routers?
-        // for (br, external) in virtual_boundary {
-        //     match self.get_device(*br) {
-        //         NetworkDevice::InternalRouter(r) => {
-        //             // Check if the original router already has connectivity to an external router
-        //             for (p, as_id) in external.iter() {
-        //                 let nh = r.get_next_hop(Destination::BGP(*p));
-        //                 if nh.is_none() {
-        //                     error!("Path invalid");
-        //                     return Err(NetworkError::ZoneConstructionFailed);
-        //                 }
-        //                 if !new_net.external_routers.contains_key(&nh.unwrap()) {
-        //                     // The virtual boundary does not connect to an external router
-        //                     // ##################################################################
-        //                     // ## NEED TO RETHINK ABOUT THE REPRESENTATION OF VIRTUAL BOUNDARY ##
-        //                     // ##################################################################
-        //                     // Maybe we could directly write to the forwarding table of the boundary router
-        //                     // Issue: If a BGP update occurs in the future, what would happen to its BGP config?
-        //                     // If we use an external router to represent the virtual boundary, how to demonstrate
-        //                     // its BGP property without propagating its advertisement further into the network?
-        //                     // Can we use a BGP route map to prevent this from happening?
-        //                     let name = format!("ev{:?}", *br);
-        //                     new_net.add_external_router(name, *as_id);
-        //                     let router = new_net.get_device(*br).unwrap_internal();
 
-        //                 }
-        //             }
-        //         }
-        //         _ => {
-        //             error!("Virtual boundary router is not internal");
-        //             return Err(NetworkError::ZoneConstructionFailed);
-        //         }
-        //     }
-        // }
-        // // Remove routers that are not in the zone and their corresponding links
-        // for r in router_diff {
-        //     new_net.net.remove_node(**r);
-        //     new_net.links =
-        //         new_net.links.into_iter().filter(|(r1, r2)| *r1 != **r && *r2 != **r).collect();
-        //     new_net.routers.remove(*r);
-        //     // if the router is a boundary router, then we also need to remove the external router it connects to
-        // }
+        self.zone = Some(zone.to_owned());
+        Ok(v_boundary)
+    }
+
+    /// This function adds virtual link to a router
+    pub fn set_virtual_links_for_router(&mut self, router: RouterId, virtual_links: HashMap<RouterId, HashSet<RouterId>>) -> Result<(), NetworkError> {
+        self.routers.get_mut(&router).unwrap().set_virtual_links(virtual_links)?;
+        Ok(())
+    }
+
+    /// This function destroys the zone established
+    pub fn destroy_zone(&mut self) -> Result<(), NetworkError> {
+        if self.zone.is_none() {
+            error!("No zone exists");
+            return Err(NetworkError::ZoneDestructionFailed);
+        }
+        self.zone = None;
+        for router in self.routers.values_mut() {
+            if router.is_virtual_boundary_router() {
+                router.destroy_virtual_link()?;
+            }
+        }
         Ok(())
     }
 
@@ -649,6 +610,24 @@ impl Network {
     // ********************
     // * Helper Functions *
     // ********************
+
+    pub fn neighbors_outside_of_zone(
+        &self,
+        router: RouterId,
+        zone: &HashSet<RouterId>,
+    ) -> Option<Vec<RouterId>> {
+        let mut v_link = Vec::new();
+        let neighbors = self.get_topology().neighbors(router);
+        for n in neighbors {
+            if !zone.contains(&n) {
+                v_link.push(n);
+            }
+        }
+        if v_link.len() == 0 {
+            return None;
+        }
+        Some(v_link)
+    }
 
     /// Returns a reference to the network topology (PetGraph struct)
     pub fn get_topology(&self) -> &IgpNetwork {
@@ -1935,10 +1914,12 @@ impl PartialEq for Network {
 
 #[cfg(test)]
 mod test {
-    use crate::example_networks::{ExampleNetwork, SimpleNet, Sigcomm};
-    use crate::netsim::{Prefix, RouterId,};
+    use std::collections::{HashSet, HashMap};
+
+    use crate::netsim::config::{ConfigExpr, ConfigModifier};
+    use crate::example_networks::{ExampleNetwork, Sigcomm, SimpleNet};
+    use crate::netsim::{Prefix, RouterId, BgpSessionType, NetworkError};
     // use petgraph::prelude::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_virtual_network_gen() {
@@ -1972,24 +1953,74 @@ mod test {
         let r2 = net.get_router_id("r2").unwrap();
         let t1 = net.get_router_id("t1").unwrap();
         let t2 = net.get_router_id("t2").unwrap();
-        let route1 = net.get_route(t1, Prefix(0)).unwrap();
-        let route2 = net.get_route(t2, Prefix(0)).unwrap();
-        let route3 = net.get_route(r1, Prefix(0)).unwrap();
-        let route4 = net.get_route(r2, Prefix(0)).unwrap();
-        assert_eq!(route1, vec![t1, b1, e1]);
-        assert_eq!(route2, vec![t2, b2, e2]);
-        assert_eq!(route3, vec![r1, b2, e2]);
-        assert_eq!(route4, vec![r2, r1, b2, e2]);
 
-        let zone1 = vec![b2, r2, t2];
-        let mut virtual_boundary_zone1 = HashMap::<RouterId, Vec<RouterId>>::new();
-        virtual_boundary_zone1.insert(t2, vec![e1]);
-        virtual_boundary_zone1.insert(r2, vec![e1, e2]);
-        net.construct_virtual_zone(&zone1, &virtual_boundary_zone1).unwrap();
+        let zone1 = vec![b1, b2, r1, t1];
+        let v_boundary1: HashSet<_> = net.init_zone(&zone1).unwrap().into_iter().collect();
+        let z_set1: HashSet<_> = zone1.into_iter().collect();
 
+        let mut b1_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+        let mut b2_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+        let mut r1_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+        let t1_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+
+        b1_v_link.insert(e1, vec![e1].into_iter().collect());
+        b2_v_link.insert(e2, vec![e2].into_iter().collect());
+        r1_v_link.insert(r2, vec![e1].into_iter().collect());
+
+        net.set_virtual_links_for_router(b1, b1_v_link).unwrap();
+        net.set_virtual_links_for_router(b2, b2_v_link).unwrap();
+        net.set_virtual_links_for_router(r1, r1_v_link).unwrap();
+        net.set_virtual_links_for_router(t1, t1_v_link).unwrap();
+
+        assert_eq!(v_boundary1, z_set1);
+        assert_eq!(net.get_route(r1, Prefix(0)), Ok(vec![r1, b2, e2]));
+        assert_eq!(net.get_route(t1, Prefix(0)), Ok(vec![t1, b1, e1]));
+
+        net.apply_modifier(
+            &ConfigModifier::Remove(
+                ConfigExpr::BgpSession { source: t1, target: b1, session_type: BgpSessionType::IBgpPeer }
+            )
+        ).unwrap();
+
+        assert_eq!(net.get_route(t1, Prefix(0)), Err(NetworkError::ForwardingBlackHole(vec![t1])));
+
+        // Destroy the previous zone
+        net.destroy_zone().unwrap();
+        net.undo_action().unwrap();
+
+        assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, r1, b2, e2]));
+
+        let zone2 = vec![b2, r2, t2];
+        let v_boundary2: HashSet<_> =  net.init_zone(&zone2).unwrap().into_iter().collect();
+        let z_set2: HashSet<_> = zone2.into_iter().collect();
+
+        let mut b2_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+        let mut r2_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+        let mut t2_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
+
+        b2_v_link.insert(e2, vec![e2].into_iter().collect());
+        r2_v_link.insert(b1, vec![e1].into_iter().collect());
+        r2_v_link.insert(r1, vec![e2].into_iter().collect());
+        t2_v_link.insert(t1, vec![e1].into_iter().collect());
+
+        net.set_virtual_links_for_router(b2, b2_v_link).unwrap();
+        net.set_virtual_links_for_router(r2, r2_v_link).unwrap();
+        net.set_virtual_links_for_router(t2, t2_v_link).unwrap();
+
+        assert_eq!(v_boundary2, z_set2);
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e2]));
-        net.set_config(&Sigcomm
-            ::final_config(&net, 0)).unwrap();
+        assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, b2, e2]));
+
+        net.apply_modifier(
+            &ConfigModifier::Insert(
+                ConfigExpr::BgpSession { source: r2, target: b1, session_type: BgpSessionType::IBgpClient }
+            )
+        ).unwrap();
+        net.apply_modifier(
+            &ConfigModifier::Remove(
+                ConfigExpr::BgpSession { source: t2, target: b2, session_type: BgpSessionType::IBgpPeer }
+            )
+        ).unwrap();
 
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e1]));
         assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, e1]));

@@ -297,4 +297,7 @@ pub enum NetworkError {
     /// Zone cannot be built from the current network
     #[error("Virtual zone construction failed")]
     ZoneConstructionFailed,
+    /// Zone cannot be destroyed properly
+    #[error("Zone destroyal failed")]
+    ZoneDestructionFailed,
 }

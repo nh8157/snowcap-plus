@@ -202,7 +202,7 @@ impl ExampleNetwork for Sigcomm {
             BgpSession { source: r2, target: b1, session_type: IBgpClient }
         ).unwrap();
         config.add(
-            BgpSession { source: r1, target: b2, session_type: IBgpClient }
+            BgpSession { source: r2, target: b2, session_type: IBgpClient }
         ).unwrap();
         config.add(
             BgpSession { source: t1, target: r1, session_type: IBgpClient }
