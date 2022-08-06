@@ -2,7 +2,7 @@ use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 // use crate::netsim::router::Router;
 use crate::dep_groups::utils::*;
-use crate::netsim::{BgpSessionType, ForwardingState, Network, Prefix, RouterId};
+use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkError, Prefix, RouterId};
 use crate::strategies::StrategyDAG;
 use crate::{Error, Stopper};
 use daggy::Dag;
@@ -49,7 +49,38 @@ impl Zone {
     fn add_router(&mut self, router: RouterId) {
         self.routers.insert(router);
     }
-    fn setup_virtual_boundary_routers(&mut self) -> Result<(), Error> {
+    fn set_emulated_network(
+        &mut self,
+        before_state: &mut ForwardingState,
+        after_state: &mut ForwardingState,
+    ) -> Result<(), NetworkError> {
+        // Step 1: Identify and initialize virtual boundary routers
+        self.init_virtual_boundary_routers()?;
+
+        // Step 2: Iterate through all virtual routers in the set and check for every prefix whether the next hop is outside of the zone.
+        // If either of the next hop is outside of the zone, we add a virtual link to the corresponding router,
+        // else we don't add any link
+        for virtual_boundary_router in self.get_virtual_boundary_routers() {
+            let mut virtual_links = HashMap::new();
+            for prefix in self.emulated_network.get_known_prefixes() {
+                let before_route =
+                    before_state.get_route(virtual_boundary_router, *prefix).unwrap();
+                if !self.get_routers().contains(&before_route[1]) {
+                    let ptr = virtual_links.entry(before_route[1]).or_insert(HashSet::new());
+                    ptr.insert(*before_route.last().unwrap());
+                }
+                let after_route = after_state.get_route(virtual_boundary_router, *prefix).unwrap();
+                if !self.get_routers().contains(&after_route[1]) {
+                    let ptr = virtual_links.entry(after_route[1]).or_insert(HashSet::new());
+                    ptr.insert(*after_route.last().unwrap());
+                }
+            }
+            self.emulated_network
+                .set_virtual_links_for_router(virtual_boundary_router, virtual_links)?;
+        }
+        Ok(())
+    }
+    fn init_virtual_boundary_routers(&mut self) -> Result<(), NetworkError> {
         self.virtual_boundary_routers = self
             .emulated_network
             .init_zone(&self.routers.iter().map(|x| *x).collect())?
@@ -70,6 +101,9 @@ impl Zone {
     }
     fn get_virtual_boundary_routers(&self) -> HashSet<RouterId> {
         self.virtual_boundary_routers.clone().into_iter().collect()
+    }
+    fn get_emulated_network(&self) -> &Network {
+        &self.emulated_network
     }
 }
 
@@ -103,38 +137,39 @@ impl StrategyDAG for StrategyZone {
 
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
         // Need to clean up this code
-        let mut zones = self.zone_partition();
-        self.bind_config_to_zone(&mut zones);
-        self.zones = zones;
-
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
+        // let mut zones = self.partition_zone();
+        // self.bind_config_to_zone(&mut zones);
+        // self.zones = zones;
+        self.init_zones()?;
 
         // Iterate over each zone identified
         for zone in self.zones.values_mut() {
+            zone.set_emulated_network(&mut before_state, &mut after_state)?;
             // Step 1: For each zone, iterate through all routers, identify virtual boundary routers
-            zone.setup_virtual_boundary_routers()?;
-            
-            // Step 2: For each boundary device, get their next hop to reach prefixes in the network before and after reconfiguration
-            // !!! This algorithm may need further improvement !!!
-            for virtual_boundary_router in zone.get_virtual_boundary_routers() {
-                let mut virtual_links = HashMap::<RouterId, HashSet<RouterId>>::new();
-                for prefix in self.net.get_known_prefixes() {
-                    let route_before = before_state.get_route(virtual_boundary_router, *prefix)?;
-                    if !zone.get_routers().contains(&route_before[1]) {
-                        // insert this virtual link into the map
-                        let ptr = virtual_links.entry(route_before[1]).or_insert(HashSet::<RouterId>::new());
-                        ptr.insert(*route_before.last().unwrap());
-                    }
-                    let route_after = after_state.get_route(virtual_boundary_router, *prefix)?;
-                    if !zone.get_routers().contains(&route_after[1]) {
-                        let ptr = virtual_links.entry(route_after[1]).or_insert(HashSet::<RouterId>::new());
-                        ptr.insert(*route_after.last().unwrap());
-                    }
-                }  
-                println!("{:?}", virtual_links);
-                // Set this virtual zone onto the corresponding boundary router
-                zone.emulated_network.set_virtual_links_for_router(virtual_boundary_router, virtual_links)?;
-            }
+            // zone.init_virtual_boundary_routers()?;
+
+            // // Step 2: For each boundary device, get their next hop to reach prefixes in the network before and after reconfiguration
+            // // !!! This algorithm may need further improvement !!!
+            // for virtual_boundary_router in zone.get_virtual_boundary_routers() {
+            //     let mut virtual_links = HashMap::<RouterId, HashSet<RouterId>>::new();
+            //     for prefix in self.net.get_known_prefixes() {
+            //         let route_before = before_state.get_route(virtual_boundary_router, *prefix)?;
+            //         if !zone.get_routers().contains(&route_before[1]) {
+            //             // insert this virtual link into the map
+            //             let ptr = virtual_links.entry(route_before[1]).or_insert(HashSet::<RouterId>::new());
+            //             ptr.insert(*route_before.last().unwrap());
+            //         }
+            //         let route_after = after_state.get_route(virtual_boundary_router, *prefix)?;
+            //         if !zone.get_routers().contains(&route_after[1]) {
+            //             let ptr = virtual_links.entry(route_after[1]).or_insert(HashSet::<RouterId>::new());
+            //             ptr.insert(*route_after.last().unwrap());
+            //         }
+            //     }
+            //     println!("{:?}", virtual_links);
+            //     // Set this virtual zone onto the corresponding boundary router
+            //     zone.emulated_network.set_virtual_links_for_router(virtual_boundary_router, virtual_links)?;
+            // }
         }
 
         let router_to_zone = zone_into_map(&self.zones);
@@ -176,7 +211,13 @@ impl StrategyDAG for StrategyZone {
 }
 
 impl StrategyZone {
-    fn zone_partition(&self) -> HashMap<RouterId, Zone> {
+    fn init_zones(&mut self) -> Result<(), Error> {
+        let mut zones = self.partition_zone();
+        self.bind_config_to_zone(&mut zones);
+        self.zones = zones;
+        Ok(())
+    }
+    fn partition_zone(&self) -> HashMap<RouterId, Zone> {
         let net = &self.net;
         let mut zones = HashMap::<RouterId, Zone>::new();
         let router_ids = net.get_routers();
@@ -391,7 +432,7 @@ mod test {
     use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm};
     // use crate::hard_policies::HardPolicy;
     // use crate::netsim::Network;
-    use crate::netsim::RouterId;
+    use crate::netsim::{RouterId, Prefix};
     use crate::strategies::StrategyDAG;
     use crate::Stopper;
     use petgraph::prelude::NodeIndex;
@@ -406,7 +447,7 @@ mod test {
         let patch = init_config.get_diff(&finl_config);
         let policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
         let strategy = StrategyZone::new(net, patch.modifiers, policy, None).unwrap();
-        let zone = strategy.zone_partition();
+        let zone = strategy.partition_zone();
         println!("{:?}", &zone);
     }
 
@@ -423,12 +464,42 @@ mod test {
     }
 
     #[test]
-    fn test_sigcomm_net_partition() {
+    fn test_sigcomm_init_zones() {
         let net = Sigcomm::net(0);
+        let start_config = Sigcomm::initial_config(&net, 0);
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
-        StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::default())
-            .expect("Error while generating strategy");
+        let mut strategy =
+            StrategyZone::new(net, start_config.get_diff(&end_config).modifiers, hard_policy, None)
+                .unwrap();
+        strategy.init_zones().unwrap();
+    }
+    
+    #[test]
+    fn test_sigcomm_set_virtual_links() {
+        let net = Sigcomm::net(0);
+        let t1 = net.get_router_id("t1").unwrap();
+        let t2 = net.get_router_id("t2").unwrap();
+        let b1 = net.get_router_id("b1").unwrap();
+        let b2 = net.get_router_id("b2").unwrap();
+        let r1 = net.get_router_id("r1").unwrap();
+        let r2 = net.get_router_id("r2").unwrap();
+        let e1 = net.get_router_id("e1").unwrap();
+        let e2 = net.get_router_id("e2").unwrap();
+        let start_config = Sigcomm::initial_config(&net, 0);
+        let end_config = Sigcomm::final_config(&net, 0);
+        let hard_policy = Sigcomm::get_policy(&net, 0);
+        let mut strategy =
+            StrategyZone::new(net, start_config.get_diff(&end_config).modifiers, hard_policy, None)
+                .unwrap();
+        let (mut before, mut after) = strategy.get_before_after_states().unwrap();
+        strategy.init_zones().unwrap();
+        for z in strategy.zones.values_mut() {
+            z.set_emulated_network(&mut before, &mut after).unwrap();
+        }
+        assert_eq!(strategy.zones.get(&t1).unwrap().get_emulated_network().get_route(r1, Prefix(0)).unwrap(), vec![r1, b2, e2]);
+        assert_eq!(strategy.zones.get(&t1).unwrap().get_emulated_network().get_route(t1, Prefix(0)).unwrap(), vec![t1, b1, e1]);
+        assert_eq!(strategy.zones.get(&t2).unwrap().get_emulated_network().get_route(r2, Prefix(0)).unwrap(), vec![r2, e2]);
     }
 
     #[test]
