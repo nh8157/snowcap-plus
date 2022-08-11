@@ -1,23 +1,24 @@
-use std::collections::{HashMap, HashSet};
+use crate::netsim::config::ConfigModifier;
 use crate::netsim::Network;
-use crate::{Error, error};
+use std::{collections::{HashMap, HashSet}, thread};
+// use crate::Error;
 
 type NodeId = usize;
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct ParallelExecutor {
     /// A Directed Acyclic Graph object holding all nodes
-    dag: HashMap<usize, ParallelNode>,
+    dag: HashMap<NodeId, ParallelNode>,
     /// A hashset that points to all the ready tasks
-    ready: HashSet<usize>,
+    ready: Vec<NodeId>,
 }
 
 impl ParallelExecutor {
     fn new() -> Self {
-        Self { dag: HashMap::new(), ready: HashSet::new() }
+        Self { dag: HashMap::new(), ready: Vec::new() }
     }
 
-    fn insert_node(&mut self, nid: usize) -> Option<usize> {
+    fn insert_node(&mut self, nid: NodeId) -> Option<NodeId> {
         if !self.dag.contains_key(&nid) {
             self.dag.insert(nid, ParallelNode::new(nid));
             return None;
@@ -25,17 +26,18 @@ impl ParallelExecutor {
         Some(nid)
     }
 
-    fn add_dependency(&mut self, from: usize, to: usize) -> Result<(), Error> {
+    fn add_dependency(&mut self, from: NodeId, to: NodeId) -> Result<(), ParallelError> {
         match (self.dag.get(&from), self.dag.get(&to)) {
             (Some(_), Some(_)) => {
                 let from_node = self.dag.get_mut(&from).unwrap();
                 from_node.add_next(to);
                 let to_node = self.dag.get_mut(&to).unwrap();
                 to_node.add_prev(from);
-            },
+            }
             _ => {
                 // At least one node does not exist in the dag
                 // return an error
+                return Err(ParallelError::NodeDoesNotExist);
             }
         }
         Ok(())
@@ -48,7 +50,6 @@ impl ParallelExecutor {
         if ready.is_none() {
             return Err(ParallelError::DagHasCycle);
         }
-        println!("{:?}", ready);
         let mut visited = HashSet::new();
         for task in ready.unwrap() {
             let res = self.dag_dfs(task, &mut visited);
@@ -59,7 +60,7 @@ impl ParallelExecutor {
         Ok(())
     }
 
-    fn dag_dfs(&self, current: usize, visited: &mut HashSet<usize>) -> Result<(), ParallelError> {
+    fn dag_dfs(&self, current: NodeId, visited: &mut HashSet<NodeId>) -> Result<(), ParallelError> {
         if let Some(node) = self.dag.get(&current) {
             let nexts = node.get_next();
             if nexts.len() == 0 {
@@ -73,7 +74,7 @@ impl ParallelExecutor {
             }
             println!("{}", current);
             for node in &nexts {
-                let res = self.dag_dfs(*node, visited); 
+                let res = self.dag_dfs(*node, visited);
                 if res.is_err() {
                     // Some error occurred
                     return res;
@@ -86,7 +87,7 @@ impl ParallelExecutor {
     }
 
     /// This function appends the nodes that don't have prev into the ready field
-    fn get_initial_tasks(&self) -> Option<Vec<usize>> {
+    fn get_initial_tasks(&self) -> Option<Vec<NodeId>> {
         let mut ready = Vec::new();
         for (nid, node) in &self.dag {
             if node.get_prev().len() == 0 {
@@ -94,30 +95,50 @@ impl ParallelExecutor {
             }
         }
         if ready.len() == 0 {
-            return None
+            return None;
         }
         Some(ready)
     }
 
-    fn execute(&mut self, net: &mut Network) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    fn execute(
+        &mut self,
+        net: &mut Network,
+        configs: &Vec<ConfigModifier>,
+    ) -> Result<(), ParallelError> {
+        // Step 1: Check if the executor has any configuration and the configurations are not forming a cycle
+        if self.dag.len() == 0 || self.check_cycle().is_err() {
+            return Err(ParallelError::ExecutionFailed);
+        }
+        // Step 2: Prepare a set of ready task
+        match self.get_initial_tasks() {
+            Some(tasks) => self.ready = tasks.into_iter().collect(),
+            None => return Err(ParallelError::ExecutionFailed),
+        }
+        
+        // Step 3: Begin execution, stop when the ready queue has a zero length
+        // !!! Is a multi-threaded execution server necessary here? !!!
+        let mut finished_tasks = HashSet::<NodeId>::new();
+        while self.ready.len() > 0 {
+
+        }
+        Ok(())
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 struct ParallelNode {
-    id: usize,
-    prev_count: usize,
-    prev: HashMap<usize, bool>,
-    next: HashMap<usize, bool>,
+    id: NodeId,
+    prev_count: NodeId,
+    prev: HashMap<NodeId, bool>,
+    next: HashMap<NodeId, bool>,
 }
 
 impl ParallelNode {
-    fn new(id: usize) -> Self {
+    fn new(id: NodeId) -> Self {
         Self { id: id, prev_count: 0, prev: HashMap::new(), next: HashMap::new() }
     }
 
-    fn get_id(&self) -> usize {
+    fn get_id(&self) -> NodeId {
         self.id
     }
 
@@ -125,16 +146,16 @@ impl ParallelNode {
         self.prev_count == self.prev.len()
     }
 
-    fn get_prev(&self) -> Vec<usize> {
+    fn get_prev(&self) -> Vec<NodeId> {
         self.prev.keys().map(|x| *x).collect()
     }
 
-    fn get_next(&self) -> Vec<usize> {
+    fn get_next(&self) -> Vec<NodeId> {
         self.next.keys().map(|x| *x).collect()
     }
 
     /// Returns true if the node does not exist in the set prev
-    fn add_prev(&mut self, node: usize) -> Option<usize> {
+    fn add_prev(&mut self, node: NodeId) -> Option<NodeId> {
         if !self.prev.contains_key(&node) {
             self.prev.insert(node, false);
             return None;
@@ -143,7 +164,7 @@ impl ParallelNode {
     }
 
     /// Returns true if the node does not exist in the set next
-    fn add_next(&mut self, node: usize) -> Option<usize> {
+    fn add_next(&mut self, node: NodeId) -> Option<NodeId> {
         if !self.next.contains_key(&node) {
             self.next.insert(node, false);
             return None;
@@ -152,7 +173,7 @@ impl ParallelNode {
     }
 
     /// This function is invoked by the prev node when it is completed.
-    fn mark_prev_complete(&mut self, node: usize) -> Option<bool> {
+    fn mark_prev_complete(&mut self, node: NodeId) -> Option<bool> {
         if self.prev.contains_key(&node) {
             let ptr = self.prev.get_mut(&node).unwrap();
             if !*ptr {
@@ -166,11 +187,10 @@ impl ParallelNode {
     }
 }
 
-#[derive(Debug)]
 enum ParallelError {
     NodeDoesNotExist,
     DagHasCycle,
-
+    ExecutionFailed,
 }
 
 #[cfg(test)]
@@ -216,7 +236,7 @@ mod test {
         assert_eq!(executor.check_cycle().is_ok(), true);
     }
     #[test]
-    fn test_has_cycle() {
+    fn test_has_cycle_1() {
         let mut executor = ParallelExecutor::new();
         for i in 0..10 {
             assert_eq!(executor.insert_node(i as usize), None);
@@ -224,7 +244,20 @@ mod test {
         for i in 0..10 {
             assert_eq!(executor.add_dependency(i, (i + 1) % 10).is_ok(), true);
         }
-        println!("{:?}", executor);
+        // println!("{:?}", executor);
         assert_eq!(executor.check_cycle().is_ok(), false);
+    }
+    #[test]
+    fn test_has_cycle_2() {
+        let mut executor = ParallelExecutor::new();
+        for i in 0..10 {
+            assert_eq!(executor.insert_node(i as usize), None);
+        }
+        for i in 0..9 {
+            assert_eq!(executor.add_dependency(i, (i + 1) % 10).is_ok(), true);
+        }
+        assert_eq!(executor.add_dependency(4, 3).is_ok(), true);
+
+        assert!(executor.check_cycle().is_err());
     }
 }

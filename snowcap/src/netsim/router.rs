@@ -185,6 +185,7 @@ impl Router {
                 }
             }
         }
+        println!("Router {:?}: {:?}", self.router_id(), self.virtual_link);
         Ok(())
     }
 
@@ -420,7 +421,6 @@ impl Router {
                 match self.bgp_rib.get(&prefix) {
                     Some(entry) => {
                         let forwarding_option = self.igp_forwarding_table.get(&entry.route.next_hop).unwrap().map(|e| e.0);
-                        /*
                         // First check if forwarding option is valid
                         if let Some(nh) = forwarding_option {
                             // If self is a virtual boundary router and the next hop is outside of the boundary
@@ -431,7 +431,7 @@ impl Router {
                                 return self.virtual_link.as_ref().unwrap().get(&nh).unwrap().get(&entry.route.next_hop).map(|x| *x);
                             }
                         };
-                        */
+                        
                         return forwarding_option;
                         // instead, we can override the igp_forwarding table here
                     }
