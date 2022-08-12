@@ -1,6 +1,6 @@
 use crate::netsim::config::ConfigModifier;
 use crate::netsim::Network;
-use std::{collections::{HashMap, HashSet}, thread};
+use std::collections::{HashMap, HashSet};
 // use crate::Error;
 
 type NodeId = usize;
@@ -29,10 +29,8 @@ impl ParallelExecutor {
     fn add_dependency(&mut self, from: NodeId, to: NodeId) -> Result<(), ParallelError> {
         match (self.dag.get(&from), self.dag.get(&to)) {
             (Some(_), Some(_)) => {
-                let from_node = self.dag.get_mut(&from).unwrap();
-                from_node.add_next(to);
-                let to_node = self.dag.get_mut(&to).unwrap();
-                to_node.add_prev(from);
+                self.dag.get_mut(&from).unwrap().add_next(to);
+                self.dag.get_mut(&to).unwrap().add_prev(from);
             }
             _ => {
                 // At least one node does not exist in the dag
@@ -116,8 +114,11 @@ impl ParallelExecutor {
         }
         
         // Step 3: Begin execution, stop when the ready queue has a zero length
-        // !!! Is a multi-threaded execution server necessary here? !!!
-        let mut finished_tasks = HashSet::<NodeId>::new();
+        // We may not need an actual multi-threaded application
+        // We just need to execute DFS, and on each branch calculate the execution duration,
+        // use the longest duration as the estimate of actual execution time
+
+        // let mut finished_tasks = HashSet::<NodeId>::new();
         while self.ready.len() > 0 {
 
         }
@@ -129,13 +130,13 @@ impl ParallelExecutor {
 struct ParallelNode {
     id: NodeId,
     prev_count: NodeId,
-    prev: HashMap<NodeId, bool>,
-    next: HashMap<NodeId, bool>,
+    prev: HashSet<NodeId>,
+    next: HashSet<NodeId>,
 }
 
 impl ParallelNode {
     fn new(id: NodeId) -> Self {
-        Self { id: id, prev_count: 0, prev: HashMap::new(), next: HashMap::new() }
+        Self { id: id, prev_count: 0, prev: HashSet::new(), next: HashSet::new() }
     }
 
     fn get_id(&self) -> NodeId {
@@ -147,17 +148,16 @@ impl ParallelNode {
     }
 
     fn get_prev(&self) -> Vec<NodeId> {
-        self.prev.keys().map(|x| *x).collect()
+        self.prev.iter().map(|x| *x).collect()
     }
 
     fn get_next(&self) -> Vec<NodeId> {
-        self.next.keys().map(|x| *x).collect()
+        self.next.iter().map(|x| *x).collect()
     }
 
     /// Returns true if the node does not exist in the set prev
     fn add_prev(&mut self, node: NodeId) -> Option<NodeId> {
-        if !self.prev.contains_key(&node) {
-            self.prev.insert(node, false);
+        if !self.prev.insert(node) {
             return None;
         }
         Some(node)
@@ -165,8 +165,8 @@ impl ParallelNode {
 
     /// Returns true if the node does not exist in the set next
     fn add_next(&mut self, node: NodeId) -> Option<NodeId> {
-        if !self.next.contains_key(&node) {
-            self.next.insert(node, false);
+        if !self.next.contains(&node) {
+            self.next.insert(node);
             return None;
         }
         Some(node)
@@ -174,12 +174,8 @@ impl ParallelNode {
 
     /// This function is invoked by the prev node when it is completed.
     fn mark_prev_complete(&mut self, node: NodeId) -> Option<bool> {
-        if self.prev.contains_key(&node) {
-            let ptr = self.prev.get_mut(&node).unwrap();
-            if !*ptr {
-                *ptr = true;
-                self.prev_count += 1;
-            }
+        if self.prev.contains(&node) {
+            self.prev_count += 1;
             return Some(self.get_status());
         }
         // This node does not belong to the prev

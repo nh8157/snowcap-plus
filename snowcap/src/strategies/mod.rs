@@ -234,6 +234,7 @@ pub trait StrategyDAG {
                 return Err(e);
             }
         };
+        println!("Initialized strategy");
         strategy.work(abort) 
     }
 

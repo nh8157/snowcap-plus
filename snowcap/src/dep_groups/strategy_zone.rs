@@ -105,7 +105,7 @@ impl Zone {
             self.hard_policy.insert(condition);
         }
     }
-    fn get_id(&self) -> RouterId {
+    fn _get_id(&self) -> RouterId {
         return self.id;
     }
     fn get_routers(&self) -> HashSet<RouterId> {
@@ -123,7 +123,7 @@ impl Zone {
     fn get_emulated_network(&self) -> &Network {
         &self.emulated_network
     }
-    fn solve_emulated_network(
+    fn solve_config_ordering(
         &mut self,
         configs: &Vec<ConfigModifier>,
     ) -> Result<Vec<ConfigModifier>, Error> {
@@ -219,6 +219,7 @@ impl StrategyDAG for StrategyZone {
                     // build path-wise dependencies
                     self.split_invariance_add_to_zones(p, &before_zones, &router_to_zone)?;
                     self.split_invariance_add_to_zones(p, &after_zones, &router_to_zone)?;
+                    // We need an extra step here to build dependent relationships based on before route and after route
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -228,7 +229,7 @@ impl StrategyDAG for StrategyZone {
         }
         println!("Segmented invariance");
         for z in self.zones.values_mut() {
-            let ordering = z.solve_emulated_network(&self.modifiers)?;
+            let ordering = z.solve_config_ordering(&self.modifiers)?;
             println!("{:?}", ordering);
         }
         Ok(Dag::<ConfigModifier, u32, u32>::new())
@@ -521,7 +522,7 @@ mod test {
             println!("Configs: {:?}", z.get_configs());
             z.set_emulated_network(&mut before, &mut after).unwrap();
             // println!("{:?}", z.get_emulated_network());
-            let ordering = z.solve_emulated_network(&config_diff).unwrap();
+            let ordering = z.solve_config_ordering(&config_diff).unwrap();
             println!("{:?}", ordering);
         }
         let mut fw_zone_1 =

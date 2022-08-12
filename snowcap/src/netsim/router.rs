@@ -185,7 +185,7 @@ impl Router {
                 }
             }
         }
-        println!("Router {:?}: {:?}", self.router_id(), self.virtual_link);
+        // println!("Router {:?}: {:?}", self.router_id(), self.virtual_link);
         Ok(())
     }
 
