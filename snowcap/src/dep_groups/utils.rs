@@ -28,6 +28,7 @@ use crate::netsim::config::ConfigModifier;
 use crate::netsim::{
     printer, DeviceError, ForwardingState, Network, NetworkError, Prefix, RouterId, NetworkDevice,
 };
+use crate::netsim::types::Destination::*;
 use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
 use log::*;
@@ -686,6 +687,7 @@ pub(super) fn segment_path(
 ) -> Result<Vec<Vec<RouterId>>, Error> {
     let mut zones = Vec::<Vec<RouterId>>::new();
     let mut cached_set = HashSet::<&RouterId>::new();
+    // println!("{:?}", path);
     // As some router may belong to no zone, we can use this reusable empty vector as a placeholder
     let empty: Vec<RouterId> = vec![];
     for b in 0..(path.len()) {
@@ -707,6 +709,7 @@ pub(super) fn segment_path(
         }
     }
     if zones.len() == 0 {
+        println!("Detected no zone");
         error!("Failure detected when trying to segment path");
         return Err(Error::ZoneSegmentationFailed);
     }
@@ -720,8 +723,8 @@ pub fn extract_paths_for_router(
     after_state: &mut ForwardingState,
 ) -> (Vec<RouterId>, Vec<RouterId>) {
     (
-        before_state.get_route(router, prefix).unwrap_or(vec![]),
-        after_state.get_route(router, prefix).unwrap_or(vec![]),
+        before_state.get_route_new(router, BGP(prefix)).unwrap(),
+        after_state.get_route_new(router, BGP(prefix)).unwrap(),
     )
 }
 
