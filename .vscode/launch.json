@@ -1,0 +1,178 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'snowcap'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=snowcap"
+                ],
+                "filter": {
+                    "name": "snowcap",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'ltl'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=ltl",
+                    "--package=snowcap_ltl_parser"
+                ],
+                "filter": {
+                    "name": "ltl",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'snowcap_runtime'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=snowcap_runtime"
+                ],
+                "filter": {
+                    "name": "snowcap_runtime",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'gns3'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=gns3"
+                ],
+                "filter": {
+                    "name": "gns3",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'snowcap_main'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=snowcap_main",
+                    "--package=snowcap_main"
+                ],
+                "filter": {
+                    "name": "snowcap_main",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'snowcap_main'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=snowcap_main",
+                    "--package=snowcap_main"
+                ],
+                "filter": {
+                    "name": "snowcap_main",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'snowcap_bencher'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=snowcap_bencher"
+                ],
+                "filter": {
+                    "name": "snowcap_bencher",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'problem_probability'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=problem_probability",
+                    "--package=problem_probability"
+                ],
+                "filter": {
+                    "name": "problem_probability",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'problem_probability'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=problem_probability",
+                    "--package=problem_probability"
+                ],
+                "filter": {
+                    "name": "problem_probability",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
