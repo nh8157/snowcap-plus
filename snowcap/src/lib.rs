@@ -148,6 +148,8 @@ pub mod permutators;
 pub mod soft_policies;
 //pub mod static_analysis;
 pub mod strategies;
+/// This module defines objects for parallel execution of configurations
+pub mod parallelism;
 // TODO needs fixing
 //pub mod transient_behavior;
 

@@ -1,13 +1,12 @@
 use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 use crate::netsim::types::Destination::*;
-// use crate::netsim::router::Router;
-use crate::dep_groups::strategy_trta::StrategyTRTA;
+use crate::dep_groups::{strategy_trta::StrategyTRTA,};
+use crate::parallelism::ParallelExecutor;
 use crate::dep_groups::utils::*;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkError, Prefix, RouterId};
-use crate::strategies::{Strategy, StrategyDAG};
+use crate::strategies::{Strategy, StrategyDAG,};
 use crate::{Error, Stopper};
-use daggy::Dag;
 use petgraph::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -182,10 +181,10 @@ impl StrategyDAG for StrategyZone {
         }))
     }
 
-    fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigModifier, u32, u32>, Error> {
+    fn work(&mut self, _abort: Stopper) -> Result<ParallelExecutor, Error> {
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
 
-        // println!("{:?}", )
+        let mut _executor = ParallelExecutor::new();
 
         self.init_zones()?;
 
@@ -220,6 +219,7 @@ impl StrategyDAG for StrategyZone {
                     self.split_invariance_add_to_zones(p, &before_zones, &router_to_zone)?;
                     self.split_invariance_add_to_zones(p, &after_zones, &router_to_zone)?;
                     // We need an extra step here to build dependent relationships based on before route and after route
+                    
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -232,7 +232,7 @@ impl StrategyDAG for StrategyZone {
             let ordering = z.solve_config_ordering(&self.modifiers)?;
             println!("{:?}", ordering);
         }
-        Ok(Dag::<ConfigModifier, u32, u32>::new())
+        Ok(_executor)
     }
 }
 

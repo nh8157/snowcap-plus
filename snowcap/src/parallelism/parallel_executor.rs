@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 type NodeId = usize;
 
-// #[derive(Debug)]
+/// This struct defines a parallel executor
+#[derive(Debug)]
 pub struct ParallelExecutor {
     /// A Directed Acyclic Graph object holding all nodes
     dag: HashMap<NodeId, ParallelNode>,
@@ -14,11 +15,11 @@ pub struct ParallelExecutor {
 }
 
 impl ParallelExecutor {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { dag: HashMap::new(), ready: Vec::new() }
     }
 
-    fn insert_node(&mut self, nid: NodeId) -> Option<NodeId> {
+    pub(crate) fn insert_node(&mut self, nid: NodeId) -> Option<NodeId> {
         if !self.dag.contains_key(&nid) {
             self.dag.insert(nid, ParallelNode::new(nid));
             return None;
@@ -26,7 +27,7 @@ impl ParallelExecutor {
         Some(nid)
     }
 
-    fn add_dependency(&mut self, from: NodeId, to: NodeId) -> Result<(), ParallelError> {
+    pub(crate) fn add_dependency(&mut self, from: NodeId, to: NodeId) -> Result<(), ParallelError> {
         match (self.dag.get(&from), self.dag.get(&to)) {
             (Some(_), Some(_)) => {
                 self.dag.get_mut(&from).unwrap().add_next(to);
@@ -98,7 +99,7 @@ impl ParallelExecutor {
         Some(ready)
     }
 
-    fn execute(
+    pub(crate) fn execute_maximum_depth(
         &mut self,
         net: &mut Network,
         configs: &Vec<ConfigModifier>,
@@ -124,9 +125,17 @@ impl ParallelExecutor {
         }
         Ok(())
     }
+
+    pub(crate) fn execute_single_threaded(
+        &mut self,
+        net: &mut Network,
+    ) {
+
+    }
+
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 struct ParallelNode {
     id: NodeId,
     prev_count: NodeId,
@@ -183,7 +192,7 @@ impl ParallelNode {
     }
 }
 
-enum ParallelError {
+pub enum ParallelError {
     NodeDoesNotExist,
     DagHasCycle,
     ExecutionFailed,
@@ -191,7 +200,7 @@ enum ParallelError {
 
 #[cfg(test)]
 mod test {
-    use crate::dep_groups::parallel_executor::*;
+    use crate::parallelism::parallel_executor::*;
     #[test]
     fn test_node_init() {
         let mut node1 = ParallelNode::new(0);
