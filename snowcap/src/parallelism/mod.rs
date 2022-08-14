@@ -2,8 +2,8 @@
 mod dag;
 pub use dag::Dag;
 
-mod dependency_builder;
-pub use dependency_builder::DependencyBuilder;
+mod solution_builder;
+pub use solution_builder::SolutionBuilder;
 
 mod types;
-pub use types::{ParallelError, ConfigId};
+pub use types::{ParallelError};

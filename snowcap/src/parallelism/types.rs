@@ -2,8 +2,10 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
+use crate::netsim::{Prefix, RouterId};
+
 /// The absolute position of configurations in a vector
-pub type ConfigId = usize;
+pub(crate) type ConfigId = usize;
 
 /// 
 #[derive(Error, Debug)]

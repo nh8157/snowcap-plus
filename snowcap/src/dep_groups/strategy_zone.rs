@@ -2,7 +2,7 @@ use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 use crate::netsim::types::Destination::*;
 use crate::dep_groups::{strategy_trta::StrategyTRTA,};
-use crate::parallelism::Dag;
+use crate::parallelism::{Dag, SolutionBuilder};
 use crate::dep_groups::utils::*;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkError, Prefix, RouterId};
 use crate::strategies::{Strategy, StrategyDAG,};
@@ -185,7 +185,8 @@ impl StrategyDAG for StrategyZone {
     fn work(&mut self, _abort: Stopper) -> Result<Dag<usize>, Error> {
         let (mut before_state, mut after_state) = self.get_before_after_states()?;
 
-        let mut _executor = Dag::new();
+        let mut _builder = SolutionBuilder::new();
+        let mut _executor = Dag::<usize>::new();
 
         self.init_zones()?;
 

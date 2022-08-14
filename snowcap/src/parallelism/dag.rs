@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::parallelism::types::*;
 
 /// This struct defines a parallel executor
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Dag<T> {
     /// A Directed Acyclic Graph object holding all nodes
     dag: HashMap<T, Node<T>>,
@@ -22,6 +22,10 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
             return None;
         }
         Some(nid)
+    }
+
+    pub(crate) fn has_node(&self, node: &T) -> bool {
+        self.dag.contains_key(node)
     }
 
     pub(crate) fn add_dependency(&mut self, from: T, to: T) -> Result<(), DagError<T>> {
@@ -94,7 +98,7 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Node<T> {
     id: T,
     prev_count: usize,
