@@ -150,7 +150,7 @@ pub use crate::dep_groups::strategy_trta::StrategyTRTA;
 use crate::hard_policies::HardPolicy;
 use crate::netsim::config::{Config, ConfigModifier};
 use crate::netsim::Network;
-use crate::parallelism::ParallelExecutor;
+use crate::parallelism::Dag;
 use crate::{Error, Stopper};
 
 use std::time::Duration;
@@ -215,7 +215,7 @@ pub trait StrategyDAG {
         hard_policy: HardPolicy,
         time_budget: Option<Duration>,
         abort: Stopper,
-    ) -> Result<ParallelExecutor, Error> {
+    ) -> Result<Dag<usize>, Error> {
         let start_config = net.current_config().clone();
         let patch = start_config.get_diff(&end_config);
         let modifiers: Vec<ConfigModifier> = patch.modifiers;
@@ -246,7 +246,7 @@ pub trait StrategyDAG {
     ) -> Result<Box<Self>, Error>;
 
     /// Producing an order of configurations encapsulated in a DAG object
-    fn work(&mut self, abort: Stopper) -> Result<ParallelExecutor, Error>;
+    fn work(&mut self, abort: Stopper) -> Result<Dag<usize>, Error>;
 }
 
 /// Trait for a strategy being able to solve groups of modifiers

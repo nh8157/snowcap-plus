@@ -92,41 +92,6 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
         }
         Some(ready)
     }
-
-    // pub(crate) fn execute_maximum_depth(
-    //     &mut self,
-    //     net: &mut Network,
-    //     configs: &Vec<ConfigModifier>,
-    // ) -> Result<(), ParallelError> {
-    //     // Step 1: Check if the executor has any configuration and the configurations are not forming a cycle
-    //     if self.dag.len() == 0 || self.check_cycle().is_err() {
-    //         return Err(ParallelError::ExecutionFailed);
-    //     }
-    //     // Step 2: Prepare a set of ready task
-    //     match self.get_initial_tasks() {
-    //         Some(tasks) => {},
-    //         None => return Err(ParallelError::ExecutionFailed),
-    //     }
-        
-    //     // Step 3: Begin execution, stop when the ready queue has a zero length
-    //     // We may not need an actual multi-threaded application
-    //     // We just need to execute DFS, and on each branch calculate the execution duration,
-    //     // use the longest duration as the estimate of actual execution time
-
-    //     // let mut finished_tasks = HashSet::<T>::new();
-    //     // while self.ready.len() > 0 {
-
-    //     // }
-    //     Ok(())
-    // }
-
-    // pub(crate) fn execute_single_threaded(
-    //     &mut self,
-    //     net: &mut Network,
-    // ) {
-
-    // }
-
 }
 
 #[derive(Debug)]
