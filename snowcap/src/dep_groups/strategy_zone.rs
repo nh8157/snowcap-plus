@@ -19,10 +19,9 @@ pub type ZoneId = RouterId;
 
 #[derive(Debug, Clone)]
 pub struct Zone {
-    pub id: ZoneId, // each zone is identified by the last router in the zone
-    pub routers: HashSet<RouterId>,
-    // index of the configurations
-    pub configs: Vec<usize>,
+    pub id: ZoneId, // Identifier of the current zone
+    pub routers: HashSet<RouterId>, // Routers that belong to this zone
+    pub configs: Vec<usize>, // Configurations that belong to this zone
     num_of_routers: usize,
     hard_policy: HashSet<Condition>,
     virtual_boundary_routers: HashSet<RouterId>,
@@ -44,7 +43,7 @@ impl Zone {
     fn contains_router(&self, router: &RouterId) -> bool {
         self.routers.contains(router)
     }
-    fn assign_routers(&mut self, routers: Vec<RouterId>) {
+    fn set_routers(&mut self, routers: Vec<RouterId>) {
         routers.iter().for_each(|r| self.add_router(*r));
         self.num_of_routers = routers.len();
     }
@@ -59,6 +58,8 @@ impl Zone {
         // println!("Zone: {:?}", self.routers);
         // Step 1: Identify and initialize virtual boundary routers
         self.init_virtual_boundary_routers()?;
+
+        // Do we really want this type of incomplete virtual mapping?
 
         // Step 2: Iterate through all virtual routers in the set and check for every prefix whether the next hop is outside of the zone.
         // If either of the next hop is outside of the zone, we add a virtual link to the corresponding router,
@@ -268,7 +269,7 @@ impl StrategyZone {
 
             let mut zone = Zone::new(*id, net);
             let router_set = bgp_zone_extractor(*id, net).unwrap();
-            zone.assign_routers(router_set.into_iter().collect());
+            zone.set_routers(router_set.into_iter().collect());
             // push the current zone into the final collection of zones
             zones.insert(*id, zone);
         }
