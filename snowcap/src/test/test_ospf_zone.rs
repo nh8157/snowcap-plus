@@ -20,8 +20,8 @@ fn test_ospf(){
     this_network.add_link(a_id,c_id);
     this_network.add_link(a_id,d_id);
     this_network.add_link(b_id,c_id);
-    this_network.add_link(b_id,d_id);
-    this_network.add_link(c_id,d_id);
+    //this_network.add_link(b_id,d_id);
+    //this_network.add_link(c_id,d_id);
     let a_id = this_network.get_router_id("A").unwrap();
     let b_id = this_network.get_router_id("B").unwrap();
     let c_id = this_network.get_router_id("C").unwrap();
@@ -35,10 +35,10 @@ fn test_ospf(){
     c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: a_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: c_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: c_id, target: b_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: d_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: b_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: c_id, target: d_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: c_id, weight: 10.0 }).unwrap();
+    //c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: d_id, weight: 10.0 }).unwrap();
+    //c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: b_id, weight: 10.0 }).unwrap();
+    //c.add(ConfigExpr::IgpLinkWeight { source: c_id, target: d_id, weight: 10.0 }).unwrap();
+    //c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: c_id, weight: 10.0 }).unwrap();
     this_network.set_config(&c).unwrap();
     let mut zones=find_ospf_strict_zone(&this_network);
     let x = true;
