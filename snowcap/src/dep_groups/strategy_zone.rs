@@ -1,28 +1,24 @@
+use crate::dep_groups::strategy_trta::StrategyTRTA;
+use crate::dep_groups::utils::*;
 use crate::hard_policies::{Condition, HardPolicy};
 use crate::netsim::config::{ConfigExpr, ConfigModifier};
 use crate::netsim::types::Destination::*;
-use crate::dep_groups::{strategy_trta::StrategyTRTA,};
-use crate::parallelism::{Dag, SolutionBuilder};
-use crate::dep_groups::utils::*;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkError, Prefix, RouterId};
-use crate::strategies::{Strategy, StrategyDAG,};
+use crate::parallelism::{ConfigId, Dag, SolutionBuilder};
+use crate::strategies::{Strategy, StrategyDAG};
 use crate::{Error, Stopper};
-use petgraph::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+use std::iter::zip;
 
-// use super::parallel_executor::ParallelExecutor;
-
-// #[allow(unused_variables, unused_imports)]
-
-pub type ZoneId = RouterId;
+pub(crate) type ZoneId = RouterId;
 
 #[derive(Debug, Clone)]
 pub struct Zone {
-    pub id: ZoneId, // Identifier of the current zone
+    pub id: ZoneId,                 // Identifier of the current zone
     pub routers: HashSet<RouterId>, // Routers that belong to this zone
-    pub configs: Vec<usize>, // Configurations that belong to this zone
-    num_of_routers: usize,
+    pub configs: Vec<ConfigId>,     // Configurations that belong to this zone
+    ordering: Option<Vec<ConfigModifier>>,
     hard_policy: HashSet<Condition>,
     virtual_boundary_routers: HashSet<RouterId>,
     emulated_network: Network,
@@ -34,22 +30,25 @@ impl Zone {
             id: id,
             routers: HashSet::new(),
             configs: Vec::new(),
-            num_of_routers: 0,
+            ordering: None,
             hard_policy: HashSet::new(),
             virtual_boundary_routers: HashSet::new(),
             emulated_network: net.to_owned(),
         }
     }
+
     fn contains_router(&self, router: &RouterId) -> bool {
         self.routers.contains(router)
     }
+
     fn set_routers(&mut self, routers: Vec<RouterId>) {
         routers.iter().for_each(|r| self.add_router(*r));
-        self.num_of_routers = routers.len();
     }
+
     fn add_router(&mut self, router: RouterId) {
         self.routers.insert(router);
     }
+
     fn set_emulated_network(
         &mut self,
         before_state: &mut ForwardingState,
@@ -89,6 +88,7 @@ impl Zone {
         }
         Ok(())
     }
+
     fn init_virtual_boundary_routers(&mut self) -> Result<(), NetworkError> {
         self.virtual_boundary_routers = self
             .emulated_network
@@ -97,49 +97,62 @@ impl Zone {
             .collect();
         Ok(())
     }
+
     fn add_config(&mut self, config: usize) {
         self.configs.push(config);
     }
+
     fn add_hard_policy(&mut self, condition: Condition) {
         if !self.hard_policy.contains(&condition) {
             self.hard_policy.insert(condition);
         }
     }
+
     fn _get_id(&self) -> RouterId {
         return self.id;
     }
+
     fn get_routers(&self) -> HashSet<RouterId> {
         self.routers.clone()
     }
+
     fn get_configs(&self) -> Vec<usize> {
         self.configs.clone()
     }
+
+    fn get_ordering(&self) -> Option<Vec<ConfigModifier>> {
+        self.ordering.clone()
+    }
+
     fn get_virtual_boundary_routers(&self) -> HashSet<RouterId> {
         self.virtual_boundary_routers.clone().into_iter().collect()
     }
+
     fn get_policy(&self) -> Vec<Condition> {
         self.hard_policy.clone().into_iter().collect()
     }
+
     fn get_emulated_network(&self) -> &Network {
         &self.emulated_network
     }
-    fn solve_config_ordering(
-        &mut self,
-        configs: &Vec<ConfigModifier>,
-    ) -> Result<Vec<ConfigModifier>, Error> {
-        let relevant_configs = self.extract_relevant_configs(configs)?;
+
+    // This function takes in an array of configurations, filter out the irrelevant configurations,
+    // pass the relevant configs into strartegy_trta, map the configs output to their ids
+    fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
+        let relevant_configs = self.map_idx_to_config(configs)?;
         // Convert the conditions into hard policy object?
         let mut strategy = StrategyTRTA::new(
             self.get_emulated_network().to_owned(),
-            relevant_configs,
+            relevant_configs.clone(),
             HardPolicy::globally(self.get_policy()),
             None,
         )?;
-        let ordering = strategy.work(Stopper::new())?;
-        println!("Ordering: {:?}", ordering);
-        Ok(ordering)
+        self.ordering = Some(strategy.work(Stopper::new())?);
+        // self.emulated_network.undo_action();
+        Ok(())
     }
-    fn extract_relevant_configs(
+
+    fn map_idx_to_config(
         &self,
         configs: &Vec<ConfigModifier>,
     ) -> Result<Vec<ConfigModifier>, Error> {
@@ -157,10 +170,10 @@ impl Zone {
 pub struct StrategyZone {
     net: Network,
     zones: HashMap<ZoneId, Zone>,
-    // path_dependency: HashMap<RouterId, (Vec<RouterId>, Vec<RouterId>)>,
-    // dag: Dag<ConfigModifier, u32, u32>,
     modifiers: Vec<ConfigModifier>,
     hard_policy: HardPolicy,
+    before_state: ForwardingState,
+    after_state: ForwardingState,
     _stop_time: Option<Duration>,
 }
 
@@ -171,29 +184,23 @@ impl StrategyDAG for StrategyZone {
         hard_policy: HardPolicy,
         time_budget: Option<Duration>,
     ) -> Result<Box<Self>, crate::Error> {
+        let before_state = net.get_forwarding_state_new();
+        let after_state = StrategyZone::get_after_states(&net, &modifiers).unwrap();
         Ok(Box::new(Self {
             net,
             zones: HashMap::<ZoneId, Zone>::new(),
-            // path_dependency: HashMap::new(),
-            // dag: daggy::
             modifiers,
             hard_policy,
+            before_state,
+            after_state,
             _stop_time: time_budget,
         }))
     }
 
-    fn work(&mut self, _abort: Stopper) -> Result<Dag<usize>, Error> {
-        let (mut before_state, mut after_state) = self.get_before_after_states()?;
-
-        let mut _builder = SolutionBuilder::new();
-        let mut _executor = Dag::<usize>::new();
+    fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigId>, Error> {
+        let mut builder = SolutionBuilder::new();
 
         self.init_zones()?;
-
-        // Iterate over each zone identified
-        for zone in self.zones.values_mut() {
-            zone.set_emulated_network(&mut before_state, &mut after_state)?;
-        }
 
         let router_to_zone = zone_into_map(&self.zones);
 
@@ -203,14 +210,13 @@ impl StrategyDAG for StrategyZone {
             return Err(Error::NotImplemented);
         }
         let condition = self.hard_policy.prop_vars.clone();
-        // partition each invariance according to their zones
-        // might need to check the temporal modal as well?
+
         for c in &condition {
             match c {
                 // only support reachable/not reachable condtions
                 Condition::Reachable(r, p, _) => {
-                    let (before_path, after_path) =
-                        extract_paths_for_router(*r, *p, &mut before_state, &mut after_state);
+                    let before_path = self.before_state.get_route_new(*r, BGP(*p)).unwrap();
+                    let after_path = self.after_state.get_route_new(*r, BGP(*p)).unwrap();
                     // also need to retrieve the AS info of this router
                     // the last hop must end at an external router
                     // segment routers on new route and old route into different zones
@@ -220,8 +226,27 @@ impl StrategyDAG for StrategyZone {
                     // build path-wise dependencies
                     self.split_invariance_add_to_zones(p, &before_zones, &router_to_zone)?;
                     self.split_invariance_add_to_zones(p, &after_zones, &router_to_zone)?;
-                    // We need an extra step here to build dependent relationships based on before route and after route
-                    
+
+                    // Set up node dependency here
+                    // Indicator 1: the router is in a different zone from the initial router
+                    // Indicator 2: the router has a different next hop in the new state
+
+                    // To satisfy indicator 1, we skip nodes that are in the same zone as router r
+                    for i in 1..before_zones.len() {
+                        for s in &before_zones[i] {
+                            // Check if the router has a different next hop in the new state
+                            if self.before_state.has_diff_next_hop(*s, *p, &self.after_state) {
+                                builder.add_node_dependency(*r, *s)?;
+                            }
+                        }
+                    }
+                    for i in 1..after_zones.len() {
+                        for s in &after_zones[i] {
+                            if self.before_state.has_diff_next_hop(*s, *p, &self.after_state) {
+                                builder.add_node_dependency(*s, *r)?;
+                            }
+                        }
+                    }
                 }
                 // Might need adaptation for condition NotReachable
                 _ => {
@@ -229,12 +254,12 @@ impl StrategyDAG for StrategyZone {
                 }
             }
         }
-        println!("Segmented invariance");
-        for z in self.zones.values_mut() {
-            let ordering = z.solve_config_ordering(&self.modifiers)?;
-            println!("{:?}", ordering);
-        }
-        Ok(_executor)
+
+        self.solve_zone_orderings()?;
+
+        self.assemble_zone_orderings(&mut builder)?;
+
+        Ok(builder.get_config_dependency().to_owned())
     }
 }
 
@@ -242,9 +267,44 @@ impl StrategyZone {
     fn init_zones(&mut self) -> Result<(), Error> {
         let mut zones = self.partition_zone();
         self.bind_config_to_zone(&mut zones);
+        // Iterate over each zone identified
+        for zone in zones.values_mut() {
+            zone.set_emulated_network(&mut self.before_state, &mut self.after_state)?;
+        }
         self.zones = zones;
         Ok(())
     }
+
+    fn solve_zone_orderings(&mut self) -> Result<(), Error> {
+        for z in self.zones.values_mut() {
+            z.solve_ordering(&self.modifiers)?;
+        }
+        Ok(())
+    }
+
+    fn assemble_zone_orderings(&self, builder: &mut SolutionBuilder) -> Result<(), Error> {
+        let config_to_idx_map: HashMap<_, _> =
+            self.modifiers.iter().enumerate().map(|(x, y)| (y.key(), x)).collect();
+        for z in self.zones.values() {
+            match z.get_ordering() {
+                Some(config_ordering) => {
+                    let idx_ordering: Vec<_> = config_ordering
+                        .iter()
+                        .map(|x| *config_to_idx_map.get(&x.key()).unwrap())
+                        .collect();
+                    let time_stamps = self.net.clone().apply_modifiers_check_next_hop(
+                        &z.get_routers().into_iter().collect(),
+                        &config_ordering,
+                    )?;
+                    // we also need to compute the timestamp at each step
+                    builder.insert_config_ordering(&zip(idx_ordering, time_stamps).collect()).unwrap();
+                }
+                None => return Err(Error::ZoneSegmentationFailed),
+            }
+        }
+        Ok(())
+    }
+
     fn partition_zone(&self) -> HashMap<RouterId, Zone> {
         let net = &self.net;
         let mut zones = HashMap::<RouterId, Zone>::new();
@@ -279,7 +339,6 @@ impl StrategyZone {
         zones
     }
 
-    // Needs bug fixing
     fn bind_config_to_zone(&self, zones: &mut HashMap<RouterId, Zone>) {
         for (_, z) in zones {
             for (idx, config) in self.modifiers.iter().enumerate() {
@@ -354,7 +413,7 @@ impl StrategyZone {
     fn split_invariance_add_to_zones(
         &mut self,
         p: &Prefix,
-        segmented_paths: &Vec<Vec<NodeIndex>>,
+        segmented_paths: &Vec<Vec<RouterId>>,
         router_to_zone: &HashMap<RouterId, Vec<ZoneId>>,
     ) -> Result<(), Error> {
         let _external_router = segmented_paths.last().unwrap().last().unwrap();
@@ -381,18 +440,13 @@ impl StrategyZone {
         Ok(())
     }
 
-    fn get_before_after_states(&self) -> Result<(ForwardingState, ForwardingState), Error> {
-        let after_net = self.get_after_net()?;
-        Ok((self.net.get_forwarding_state(), after_net.get_forwarding_state()))
-    }
-
-    fn get_after_net(&self) -> Result<Network, Error> {
-        let mut after_net = self.net.clone();
-        for c in self.modifiers.iter() {
-            // this may not work for topologies that take into account time (e.g. Difficult gadget)
-            after_net.apply_modifier(c)?;
-        }
-        Ok(after_net)
+    fn get_after_states(
+        net: &Network,
+        modifier_vector: &Vec<ConfigModifier>,
+    ) -> Result<ForwardingState, Error> {
+        let mut after_net = net.to_owned();
+        after_net.apply_modifier_vector(modifier_vector)?;
+        Ok(after_net.get_forwarding_state_new())
     }
 
     fn is_client_or_boundary(&self, rid: &RouterId) -> bool {
@@ -416,27 +470,6 @@ impl StrategyZone {
         }
         other_router.bgp_sessions[self_id] == BgpSessionType::IBgpClient
     }
-
-    // fn zone_pretty_print(net: &Network, map: &HashMap<RouterId, HashSet<RouterId>>) {
-    //     for (id, set) in map {
-    //         let router_name = net.get_router_name(*id).unwrap();
-    //         println!("Zone of router {}", router_name);
-    //         set.iter().for_each(|n| {
-    //             let parent_router_name = net.get_router_name(*n).unwrap();
-    //             println!("\t{}", parent_router_name);
-    //         })
-    //     }
-    // }
-
-    // fn zone_config_pretty_print(net: &Network, zone_configs: &Vec<ZoneConfig>) {
-    //     for z in zone_configs {
-    //         let name = net.get_router_name(z.zone_id).unwrap();
-    //         println!("{}", name);
-    //         for c in &z.relevant_configs {
-    //             println!("\t{:?}", *c);
-    //         }
-    //     }
-    // }
 }
 
 /// For each non-route-reflector internal device, find the zone it belongs to
@@ -446,18 +479,17 @@ impl StrategyZone {
 #[cfg(test)]
 mod test {
     // use crate::dep_groups::strategy_trta::StrategyTRTA;
-    use crate::dep_groups::strategy_zone::{StrategyZone, ZoneId};
+    use crate::dep_groups::strategy_zone::StrategyZone;
     use crate::dep_groups::utils::bgp_zone_extractor;
     use crate::example_networks::repetitions::Repetition10;
     use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm};
     // use crate::hard_policies::HardPolicy;
     // use crate::netsim::Network;
     use crate::netsim::types::Destination::*;
-    use crate::netsim::{Prefix, RouterId};
+    use crate::netsim::Prefix;
     use crate::strategies::StrategyDAG;
     use crate::Stopper;
-    use petgraph::prelude::NodeIndex;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     #[test]
     fn test_chain_gadget_partition() {
@@ -513,19 +545,15 @@ mod test {
 
         println!("{:?}", net.get_route(b1, Prefix(0)));
 
-        let mut strategy =
-            StrategyZone::new(net, config_diff.clone(), hard_policy, None)
-                .unwrap();
-        let (mut before, mut after) = strategy.get_before_after_states().unwrap();
+        let mut before = net.get_forwarding_state_new();
+        let mut after = StrategyZone::get_after_states(&net, &config_diff).unwrap();
+        let mut strategy = StrategyZone::new(net, config_diff.clone(), hard_policy, None).unwrap();
         strategy.init_zones().unwrap();
         for z in strategy.zones.values_mut() {
             // println!("Zone: {:?}, configs: {:?}", z.get_id(), z.get_configs());
             println!("Routers: {:?}", z.get_routers());
             println!("Configs: {:?}", z.get_configs());
             z.set_emulated_network(&mut before, &mut after).unwrap();
-            // println!("{:?}", z.get_emulated_network());
-            let ordering = z.solve_config_ordering(&config_diff).unwrap();
-            println!("{:?}", ordering);
         }
         let mut fw_zone_1 =
             strategy.zones.get(&t1).unwrap().get_emulated_network().get_forwarding_state();
@@ -567,89 +595,5 @@ mod test {
     }
 
     #[test]
-    fn test_abilene_net_partition() {
-        // let net = AbileneNetwork::net(0);
-        // let map = strategy_zone::zone_partition(&net);
-        // let init_config = example_networks::AbileneNetwork::initial_config(&net, 0);
-        // let final_config = example_networks::AbileneNetwork::final_config(&net, 0);
-        // let diff = init_config.get_diff(&final_config);
-        // println!("{:?}", diff);
-        // strategy_zone::zone_pretty_print(&net, &map);
-    }
-
-    #[test]
-    fn test_firewall_net_config_binding() {
-        // let net = example_networks::FirewallNet::net(0);
-        // let init_config = example_networks::FirewallNet::initial_config(&net, 0);
-        // let final_config = example_networks::FirewallNet::final_config(&net, 0);
-        // let patch = init_config.get_diff(&final_config);
-        // println!("{:?}", patch);
-        // let zones = strategy_zone::zone_partition(&net);
-        // strategy_zone::bind_config_to_zone(&net, &mut zones, &patch);
-        // println!("{:?}", zone_configs);
-    }
-
-    #[test]
-    fn test_bipartite_net_config_binding() {
-        // let net = example_networks::BipartiteGadget::<Repetition10>::net(2);
-        // let init_config =
-        //     example_networks::BipartiteGadget::<Repetition10>::initial_config(&net, 2);
-        // let final_config = example_networks::BipartiteGadget::<Repetition10>::final_config(&net, 2);
-        // let patch = init_config.get_diff(&final_config);
-        // println!("{:?}", patch);
-        // let zones = strategy_zone::zone_partition(&net);
-        // println!("Reporting configuration bindings");
-        // let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
-        // // println!("{:?}", zone_configs);
-        // strategy_zone::zone_config_pretty_print(&net, &zone_configs);
-    }
-
-    #[test]
-    fn test_chain_gadget_config_binding() {
-        // let net = example_networks::ChainGadgetLegacy::<Repetition10>::net(0);
-        // let map = strategy_zone::zone_partition(&net);
-        // println!("{:?}", map);
-        // // strategy_zone::zone_pretty_print(&net, &map);
-        // let init_config =
-        //     example_networks::ChainGadgetLegacy::<Repetition10>::initial_config(&net, 0);
-        // let final_config =
-        //     example_networks::ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
-        // let patch = init_config.get_diff(&final_config);
-
-        // println!("{:?}", patch);
-        // let zones = strategy_zone::zone_partition(&net);
-        // println!("Reporting configuration bindings");
-        // let zone_configs = strategy_zone::bind_config_to_zone(&net, &zones, &patch);
-        // // println!("{:?}", zone_configs);
-        // strategy_zone::zone_config_pretty_print(&net, &zone_configs);
-    }
-
-    #[test]
-    fn test_segment_path() {
-        let mut map = HashMap::<RouterId, Vec<ZoneId>>::new();
-        let b0 = NodeIndex::new(0);
-        let b1 = NodeIndex::new(1);
-        let r0 = NodeIndex::new(2);
-        let r1 = NodeIndex::new(3);
-        let t0 = NodeIndex::new(4);
-        let t1 = NodeIndex::new(5);
-        map.insert(b0, vec![t0]);
-        map.insert(b1, vec![t0, t1]);
-        map.insert(r0, vec![t0]);
-        map.insert(r1, vec![t1]);
-        map.insert(t0, vec![t0]);
-        map.insert(t1, vec![t1]);
-
-        // let path = vec![t1, t0, b0];
-        // let path2 = vec![t1, b1];
-        // let path3 = vec![r0, r1, b0];
-        // let path4 = vec![r1, r0, b1];
-        // let path5 = vec![r1, b0];
-
-        // assert_eq!(StrategyZone::segment_path(&map, &path), vec![vec![t1], vec![t0, b0]]);
-        // assert_eq!(StrategyZone::segment_path(&map, &path2), vec![vec![t1, b1]]);
-        // assert_eq!(StrategyZone::segment_path(&map, &path3), vec![vec![r0], vec![r1], vec![b0]]);
-        // assert_eq!(StrategyZone::segment_path(&map, &path4), vec![vec![r1], vec![r0, b1]]);
-        // assert_eq!(StrategyZone::segment_path(&map, &path5), vec![vec![r1], vec![b0]]);
-    }
+    fn test_node_dependency_construction() {}
 }

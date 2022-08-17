@@ -716,18 +716,6 @@ pub(super) fn segment_path(
     Ok(zones)
 }
 
-pub fn extract_paths_for_router(
-    router: RouterId,
-    prefix: Prefix,
-    before_state: &mut ForwardingState,
-    after_state: &mut ForwardingState,
-) -> (Vec<RouterId>, Vec<RouterId>) {
-    (
-        before_state.get_route_new(router, BGP(prefix)).unwrap(),
-        after_state.get_route_new(router, BGP(prefix)).unwrap(),
-    )
-}
-
 pub(crate) fn zone_into_map(zone: &HashMap<RouterId, Zone>) -> HashMap<RouterId, Vec<ZoneId>> {
     let mut map = HashMap::<RouterId, Vec<ZoneId>>::new();
     for z in zone.values() {
@@ -777,3 +765,4 @@ fn bgp_zone_extractor_recursion(
     }
     Err(DeviceError::RouterNotFound(current_router_id))
 }
+

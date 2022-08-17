@@ -17,7 +17,9 @@
 
 //! Module containing all error types
 
+use crate::netsim::RouterId;
 use crate::netsim::{config::ConfigModifier, ConfigError, NetworkError};
+use crate::parallelism::DagError;
 use crate::topology_zoo::ZooTopologyError;
 use thiserror::Error;
 
@@ -46,6 +48,9 @@ pub enum Error {
     /// The zone cannot be segmented
     #[error("Zone segmentation failed")]
     ZoneSegmentationFailed,
+    /// Error creating an executor object
+    #[error("Dag error")]
+    BuilderError(#[from] DagError<RouterId>),
     /// Used up all of the time budget
     #[error("The time budget was used up without finding any solution")]
     Timeout,

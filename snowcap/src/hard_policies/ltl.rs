@@ -190,7 +190,7 @@ impl HardPolicy {
         
         // check if each of the conditions still holds
         for v in self.prop_vars.iter() {
-            println!("Checking {:?}", v);
+            // println!("Checking {:?}", v);
             match v.check(state) {
                 Ok(()) => {
                     new_state.push(true);

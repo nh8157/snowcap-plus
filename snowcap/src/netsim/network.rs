@@ -45,6 +45,7 @@ use petgraph::algo::FloatMeasure;
 #[cfg(feature = "transient-violation")]
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::thread::current;
 
 static DEFAULT_STOP_AFTER: usize = 10_000;
 static MAXIMUM_ALLOWED_LOOP_LEN: usize = 500;
@@ -278,18 +279,61 @@ impl Network {
     pub fn apply_patch(&mut self, patch: &ConfigPatch) -> Result<(), NetworkError> {
         // apply every modifier in order
         self.skip_queue = true;
-        for modifier in patch.modifiers.iter() {
-            self.apply_modifier(modifier)?;
-        }
+        // for modifier in patch.modifiers.iter() {
+        //     self.apply_modifier(modifier)?;
+        // }
+        self.apply_modifier_vector(&patch.modifiers)?;
         self.skip_queue = false;
         self.do_queue()
+    }
+
+    /// This is a helper function for the apply patch function above
+    pub fn apply_modifier_vector(
+        &mut self,
+        modifier_vector: &Vec<ConfigModifier>,
+    ) -> Result<(), NetworkError> {
+        for modifier in modifier_vector.iter() {
+            self.apply_modifier(modifier)?;
+        }
+        Ok(())
+    }
+
+    /// This function applies a vector of configurations to the network step by step, and return
+    /// the routers whose next hop has changed at each step
+    pub fn apply_modifiers_check_next_hop(
+        &mut self,
+        routers: &Vec<RouterId>,
+        modifiers: &Vec<ConfigModifier>,
+    ) -> Result<Vec<Vec<(RouterId, Prefix)>>, NetworkError> {
+        let mut prev_state = self.get_forwarding_state();
+        let mut history = Vec::new();
+        for modifier in modifiers.iter() {
+            self.apply_modifier(modifier)?;
+            let current_state = self.get_forwarding_state();
+            let mut current_history = Vec::new();
+            for p in self.get_known_prefixes() {
+                let mut changed_nh: Vec<_> = routers
+                    .iter()
+                    .filter(|x| {
+                        prev_state.get_next_hop(**x, *p).unwrap()
+                            != current_state.get_next_hop(**x, *p).unwrap()
+                    })
+                    .map(|x| (*x, *p))
+                    .collect();
+                if changed_nh.len() > 0 {
+                    current_history.append(&mut changed_nh);
+                }
+            }
+            history.push(current_history);
+            prev_state = current_state;
+        }
+        Ok(history)
     }
 
     /// Apply a single configuration modification. The modification must be applicable to the
     /// current configuration. All messages are exchanged. The process fails, then the network is
     /// in an undefined state, and it should be rebuilt.
 
-    // exchange messages between all devices?
     pub fn apply_modifier(&mut self, modifier: &ConfigModifier) -> Result<(), NetworkError> {
         debug!("Applying modifier: {}", printer::config_modifier(self, modifier)?);
 
@@ -572,11 +616,11 @@ impl Network {
 
         for r in &zone_set {
             match self.neighbors_outside_of_zone(*r, &zone_set) {
-                None => {},
+                None => {}
                 Some(v_link) => {
                     v_boundary.push(*r);
                     self.routers.get_mut(r).unwrap().init_virtual_links(v_link)?;
-                },
+                }
             }
         }
 
@@ -585,7 +629,11 @@ impl Network {
     }
 
     /// This function adds virtual link to a router
-    pub fn set_virtual_links_for_router(&mut self, router: RouterId, virtual_links: HashMap<RouterId, HashSet<RouterId>>) -> Result<(), NetworkError> {
+    pub fn set_virtual_links_for_router(
+        &mut self,
+        router: RouterId,
+        virtual_links: HashMap<RouterId, HashSet<RouterId>>,
+    ) -> Result<(), NetworkError> {
         self.routers.get_mut(&router).unwrap().set_virtual_links(virtual_links)?;
         Ok(())
     }
@@ -1914,11 +1962,11 @@ impl PartialEq for Network {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{HashSet, HashMap};
+    use std::collections::{HashMap, HashSet};
 
-    use crate::netsim::config::{ConfigExpr, ConfigModifier};
     use crate::example_networks::{ExampleNetwork, Sigcomm, SimpleNet};
-    use crate::netsim::{Prefix, RouterId, BgpSessionType, NetworkError};
+    use crate::netsim::config::{ConfigExpr, ConfigModifier};
+    use crate::netsim::{BgpSessionType, NetworkError, Prefix, RouterId};
     // use petgraph::prelude::*;
 
     #[test]
@@ -1976,11 +2024,12 @@ mod test {
         assert_eq!(net.get_route(r1, Prefix(0)), Ok(vec![r1, b2, e2]));
         assert_eq!(net.get_route(t1, Prefix(0)), Ok(vec![t1, b1, e1]));
 
-        net.apply_modifier(
-            &ConfigModifier::Remove(
-                ConfigExpr::BgpSession { source: t1, target: b1, session_type: BgpSessionType::IBgpPeer }
-            )
-        ).unwrap();
+        net.apply_modifier(&ConfigModifier::Remove(ConfigExpr::BgpSession {
+            source: t1,
+            target: b1,
+            session_type: BgpSessionType::IBgpPeer,
+        }))
+        .unwrap();
 
         assert_eq!(net.get_route(t1, Prefix(0)), Err(NetworkError::ForwardingBlackHole(vec![t1])));
 
@@ -1991,7 +2040,7 @@ mod test {
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, r1, b2, e2]));
 
         let zone2 = vec![b2, r2, t2];
-        let v_boundary2: HashSet<_> =  net.init_zone(&zone2).unwrap().into_iter().collect();
+        let v_boundary2: HashSet<_> = net.init_zone(&zone2).unwrap().into_iter().collect();
         let z_set2: HashSet<_> = zone2.into_iter().collect();
 
         let mut b2_v_link = HashMap::<RouterId, HashSet<RouterId>>::new();
@@ -2011,16 +2060,18 @@ mod test {
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e2]));
         assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, b2, e2]));
 
-        net.apply_modifier(
-            &ConfigModifier::Insert(
-                ConfigExpr::BgpSession { source: r2, target: b1, session_type: BgpSessionType::IBgpClient }
-            )
-        ).unwrap();
-        net.apply_modifier(
-            &ConfigModifier::Remove(
-                ConfigExpr::BgpSession { source: t2, target: b2, session_type: BgpSessionType::IBgpPeer }
-            )
-        ).unwrap();
+        net.apply_modifier(&ConfigModifier::Insert(ConfigExpr::BgpSession {
+            source: r2,
+            target: b1,
+            session_type: BgpSessionType::IBgpClient,
+        }))
+        .unwrap();
+        net.apply_modifier(&ConfigModifier::Remove(ConfigExpr::BgpSession {
+            source: t2,
+            target: b2,
+            session_type: BgpSessionType::IBgpPeer,
+        }))
+        .unwrap();
 
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e1]));
         assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, e1]));

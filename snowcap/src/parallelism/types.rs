@@ -2,10 +2,8 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::netsim::{Prefix, RouterId};
-
 /// The absolute position of configurations in a vector
-pub(crate) type ConfigId = usize;
+pub type ConfigId = usize;
 
 /// 
 #[derive(Error, Debug)]
@@ -18,12 +16,16 @@ pub enum ParallelError<T: Debug + 'static> {
     ExecutionFailed,
 }
 
+///
 #[derive(Error, Debug)]
 pub enum DagError<T: Debug> {
+    ///
     #[error("Node {0:?} already exists in the DAG")]
     NodeAlreadyExists(T),
+    ///
     #[error("Node {0:?} does not exist in the DAG")]
     NodeDoesNotExist(T),
+    ///
     #[error("Found a cycle in the DAG")]
     DagHasCycle,
 }
