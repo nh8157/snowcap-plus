@@ -796,6 +796,7 @@ impl Router {
         self.igp_forwarding_table = HashMap::new();
         // compute shortest path to all other nodes in the graph
         let (path_weights, predecessors) = bellman_ford(graph, self.router_id).unwrap();
+        //let predecessors = bellman_ford(graph, self.router_id).unwrap();
         let mut paths: Vec<(RouterId, LinkWeight, Option<RouterId>)> = path_weights
             .into_iter()
             .zip(predecessors.into_iter())

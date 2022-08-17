@@ -32,3 +32,7 @@ snowcap_ltl_parser = {path = "../snowcap_ltl_parser"}
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "katex-header.html"]
+
+[dependencies.rusqlite]
+version = "0.28.0"
+features = ["bundled"]

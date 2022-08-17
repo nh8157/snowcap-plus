@@ -101,7 +101,7 @@ pub(crate) mod forwarding_state;
 pub mod route_map;
 pub mod router;
 pub mod types;
-
+pub(crate) mod ospfzone;
 pub(crate) use event::{Event, EventQueue};
 
 pub mod config;
@@ -115,3 +115,4 @@ pub use types::{
     AsId, ConfigError, DeviceError, IgpNetwork, LinkWeight, NetworkDevice, NetworkError, Prefix,
     RouterId,
 };
+
