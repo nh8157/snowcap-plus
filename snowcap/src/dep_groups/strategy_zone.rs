@@ -8,8 +8,8 @@ use crate::parallelism::{ConfigId, Dag, SolutionBuilder};
 use crate::strategies::{Strategy, StrategyDAG};
 use crate::{Error, Stopper};
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 use std::iter::zip;
+use std::time::Duration;
 
 pub(crate) type ZoneId = RouterId;
 
@@ -259,6 +259,8 @@ impl StrategyDAG for StrategyZone {
 
         self.assemble_zone_orderings(&mut builder)?;
 
+        println!("{:?}", builder.get_node_dependency());
+        
         Ok(builder.get_config_dependency().to_owned())
     }
 }
@@ -288,6 +290,7 @@ impl StrategyZone {
         for z in self.zones.values() {
             match z.get_ordering() {
                 Some(config_ordering) => {
+                    println!("{:?}", config_ordering);
                     let idx_ordering: Vec<_> = config_ordering
                         .iter()
                         .map(|x| *config_to_idx_map.get(&x.key()).unwrap())
@@ -297,11 +300,15 @@ impl StrategyZone {
                         &config_ordering,
                     )?;
                     // we also need to compute the timestamp at each step
-                    builder.insert_config_ordering(&zip(idx_ordering, time_stamps).collect()).unwrap();
+                    builder
+                        .insert_config_ordering(&zip(idx_ordering, time_stamps).collect())
+                        .unwrap();
                 }
+                // Need to add errors that cater to DAG and parallel executor
                 None => return Err(Error::ZoneSegmentationFailed),
             }
         }
+        builder.construct_config_dependency().unwrap();
         Ok(())
     }
 
@@ -568,7 +575,9 @@ mod test {
         let net = Sigcomm::net(0);
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
-        StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        let dag =
+            StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        println!("{:?}", dag);
     }
 
     #[test]
@@ -595,5 +604,13 @@ mod test {
     }
 
     #[test]
-    fn test_node_dependency_construction() {}
+    fn test_chain_gadget_synthesize() {
+        let net = ChainGadgetLegacy::<Repetition10>::net(0);
+        let end_config = ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
+        let hard_policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
+        let dag =
+            StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+
+        println!("{:?}", dag);
+    }
 }

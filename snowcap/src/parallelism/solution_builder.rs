@@ -12,7 +12,7 @@ use crate::parallelism::{
     types::{ConfigId, DagError},
     Dag,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// This is a tool for building dependency graph
 #[derive(Debug)]
@@ -63,7 +63,26 @@ impl SolutionBuilder {
     }
 
     // This function sets up dependency among configurations according to node dependency
-    pub(crate) fn construct_config_dependency(&mut self) -> Result<(), DagError<ConfigId>> {
+    pub(crate) fn construct_config_dependency(&mut self) -> Result<(), DagError<RouterId>> {
+        let mut starter_nodes = self.node_dependency.get_starter_nodes().unwrap();
+        while starter_nodes.len() > 0 {
+            let current_node = starter_nodes.remove(0);
+            let mut next_nodes = HashSet::new();
+            if let Some(config1) = self.cache.get(&current_node) {
+                for next_node in self.node_dependency.get_next_of_node(current_node) {
+                    if let Some(config2) = self.cache.get(&next_node) {
+                        self.config_dependency.add_dependency(*config1, *config2).unwrap();
+                        next_nodes.insert(next_node);
+                    } else {
+                        return Err(DagError::NodeDoesNotExist(next_node));
+                    }
+                }
+                
+            } else {
+                return Err(DagError::NodeDoesNotExist(current_node));
+            };
+            starter_nodes.append(&mut next_nodes.into_iter().collect());
+        }
         Ok(())
     }
 

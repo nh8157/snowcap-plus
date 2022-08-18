@@ -84,7 +84,7 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
     }
 
     /// This function appends the nodes that don't have prev into the ready field
-    fn get_starter_nodes(&self) -> Option<Vec<T>> {
+    pub(crate) fn get_starter_nodes(&self) -> Option<Vec<T>> {
         let mut ready = Vec::new();
         for (nid, node) in &self.dag {
             if node.get_prev().len() == 0 {
@@ -96,6 +96,14 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
         }
         Some(ready)
     }
+
+    pub(crate) fn get_next_of_node(&self, node: T) -> Vec<T> {
+        self.dag.get(&node).unwrap().get_next()
+    }
+
+    // pub(crate) fn get_node(&self, node: T) -> &Node<T> {
+    //     self.dag.get(&node).unwrap()
+    // }
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
 // Snowcap: Synthesizing Network-Wide Configuration Updates
-// Copyright (C) 2021  Tibor Schneider
+// &Copyright (C) 2021  Tibor Schneider
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -45,7 +45,6 @@ use petgraph::algo::FloatMeasure;
 #[cfg(feature = "transient-violation")]
 use rand::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::thread::current;
 
 static DEFAULT_STOP_AFTER: usize = 10_000;
 static MAXIMUM_ALLOWED_LOOP_LEN: usize = 500;
@@ -1964,8 +1963,9 @@ impl PartialEq for Network {
 mod test {
     use std::collections::{HashMap, HashSet};
 
-    use crate::example_networks::{ExampleNetwork, Sigcomm, SimpleNet};
-    use crate::netsim::config::{ConfigExpr, ConfigModifier};
+    use crate::example_networks::repetitions::Repetition10;
+    use crate::example_networks::{ExampleNetwork, Sigcomm, SimpleNet, ChainGadgetLegacy};
+    use crate::netsim::config::{ConfigExpr, ConfigModifier,};
     use crate::netsim::{BgpSessionType, NetworkError, Prefix, RouterId};
     // use petgraph::prelude::*;
 
@@ -2075,5 +2075,30 @@ mod test {
 
         assert_eq!(net.get_route(r2, Prefix(0)), Ok(vec![r2, e1]));
         assert_eq!(net.get_route(t2, Prefix(0)), Ok(vec![t2, e1]));
+    }
+    #[test]
+    fn test_check_nh_1() {
+        let mut net = Sigcomm::net(0);
+        let config = vec![
+            ConfigModifier::Remove(ConfigExpr::BgpSession { source: 0.into(), target: 4.into(), session_type: BgpSessionType::IBgpPeer } ),
+            ConfigModifier::Remove(ConfigExpr::BgpSession { source: 2.into(), target: 5.into(), session_type: BgpSessionType::IBgpClient }),
+        ];
+        let routers = vec![0.into(), 2.into(), 4.into(), 5.into()];
+
+        let timestamps = net.apply_modifiers_check_next_hop(&routers, &config).unwrap();
+        assert_eq!(timestamps, vec![vec![(0.into(), Prefix(0))], vec![(0.into(), Prefix(0)), (2.into(), Prefix(0))]]);
+    }
+    #[test]
+    fn test_check_nh_2() {
+        let mut net = ChainGadgetLegacy::<Repetition10>::net(0);
+        let config = vec![
+            ConfigModifier::Insert(ConfigExpr::BgpSession { source: 8.into(), target: 3.into(), session_type: BgpSessionType::IBgpPeer }),
+        ];
+
+        let routers = vec![8.into()];
+
+        let timestamps = net.apply_modifiers_check_next_hop(&routers, &config).unwrap();
+
+        assert_eq!(timestamps, vec![vec![(8.into(), Prefix(0))]]);
     }
 }

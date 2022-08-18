@@ -26,9 +26,8 @@ use crate::hard_policies::{HardPolicy, PolicyError, WatchErrors};
 use crate::netsim::config::ConfigModifier;
 // use crate::netsim::router::Router;
 use crate::netsim::{
-    printer, DeviceError, ForwardingState, Network, NetworkError, Prefix, RouterId, NetworkDevice,
+    printer, DeviceError, Network, NetworkError, RouterId, NetworkDevice,
 };
-use crate::netsim::types::Destination::*;
 use crate::strategies::{GroupStrategy, Strategy};
 use crate::{Error, Stopper};
 use log::*;
