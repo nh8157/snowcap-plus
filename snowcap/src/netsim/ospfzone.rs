@@ -10,14 +10,14 @@ use crate::netsim::{
 use petgraph::stable_graph;
 pub fn find_ospf_strict_zone (network:&Network)-> Vec<Vec<RouterId>>{
     fn judge(router1:RouterId,router2:RouterId, graph:&IgpNetwork)->bool{
-        println!("Judge: Router1 is {}. Router2 is {}.",router1.index(),router2.index());
+        //println!("Judge: Router1 is {}. Router2 is {}.",router1.index(),router2.index());
         let mut temp_edge= graph.find_edge(router1,router2);
-        if temp_edge==None{
-            println! ("It is None!");
-        }
-        else{
-            println!("{}",graph.edge_weight(temp_edge.unwrap()).unwrap());
-        }
+        //if temp_edge==None{
+            //println! ("It is None!");
+        //}
+        //else{
+            //println!("{}",graph.edge_weight(temp_edge.unwrap()).unwrap());
+        //}
         //let connect_judge= has_path_connecting(graph,router1,router2,None);
         //if connect_judge==true{
             //println!("It is true that Router {} connects to Router {}",router1.index(),router2.index());
@@ -33,22 +33,22 @@ pub fn find_ospf_strict_zone (network:&Network)-> Vec<Vec<RouterId>>{
         let mut path_cnt=0;
         for path in possible_paths_vec{
             path_cnt=path_cnt+1;
-            for temp_router in &path{
-                println!("{} in path {}",temp_router.index(),path_cnt);
-            }
-            println!("");
-            for temp_router in &temp_intersect{
-                println!("{} before intersect with path {}",temp_router.index(),path_cnt);
-            }
+            //for temp_router in &path{
+                //println!("{} in path {}",temp_router.index(),path_cnt);
+            //}
+            //println!("");
+            //for temp_router in &temp_intersect{
+                //println!("{} before intersect with path {}",temp_router.index(),path_cnt);
+            //}
             let this_intersection=temp_intersect.intersection(&path);
             let mut next_intersect=HashSet::new();
             for temp_router in this_intersection{
                 next_intersect.insert(*temp_router);
             }
-            for temp_router in &next_intersect{
-                println!("{} after intersect with path {}",temp_router.index(),path_cnt);
-            }
-            println!("");
+            //for temp_router in &next_intersect{
+                //println!("{} after intersect with path {}",temp_router.index(),path_cnt);
+            //}
+            //println!("");
             temp_intersect=next_intersect;
         }
         temp_intersect.remove(&router1);
