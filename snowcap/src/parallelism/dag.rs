@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::fmt::Debug;
+// use crate::netsim::{Network, config::ConfigModifier};
 use crate::parallelism::types::*;
 
 /// This struct defines a parallel executor
@@ -42,14 +43,14 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
 
     // Returns true if the dag has cycle, false otherwise
     // Use DFS to traverse the dag
-    fn check_cycle(&self) -> Result<(), DagError<T>> {
+    pub(crate) fn check_cycle(&self) -> Result<(), DagError<T>> {
         let ready = self.get_starter_nodes();
         if ready.is_none() {
             return Err(DagError::DagHasCycle);
         }
         let mut visited = HashSet::new();
         for task in ready.unwrap() {
-            let res = self.dag_dfs(task, &mut visited);
+            let res = self.dfs_check_cycle(task, &mut visited);
             if res.is_err() {
                 return res;
             }
@@ -57,21 +58,21 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
         Ok(())
     }
 
-    fn dag_dfs(&self, current: T, visited: &mut HashSet<T>) -> Result<(), DagError<T>> {
+    fn dfs_check_cycle(&self, current: T, visited: &mut HashSet<T>) -> Result<(), DagError<T>> {
         if let Some(node) = self.dag.get(&current) {
             let nexts = node.get_next();
             if nexts.len() == 0 {
                 // Reached the deepest level without incurring a cycle
-                println!("Reached the deepest level");
+                // println!("Reached the deepest level");
                 return Ok(());
             }
             if !visited.insert(current) {
-                println!("Visited");
+                // println!("Visited");
                 return Err(DagError::DagHasCycle);
             }
             println!("{:?}", current);
             for node in &nexts {
-                let res = self.dag_dfs(*node, visited);
+                let res = self.dfs_check_cycle(*node, visited);
                 if res.is_err() {
                     // Some error occurred
                     return res;
@@ -97,13 +98,13 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
         Some(ready)
     }
 
-    pub(crate) fn get_next_of_node(&self, node: T) -> Vec<T> {
-        self.dag.get(&node).unwrap().get_next()
+    pub(crate) fn get_next_of_node(&self, node: T) -> Result<Vec<T>, DagError<T>> {
+        match self.dag.get(&node) {
+            Some(obj) => return Ok(obj.get_next()),
+            None => return Err(DagError::NodeDoesNotExist(node)),
+        }
     }
 
-    // pub(crate) fn get_node(&self, node: T) -> &Node<T> {
-    //     self.dag.get(&node).unwrap()
-    // }
 }
 
 #[derive(Debug, Clone)]

@@ -6,4 +6,6 @@ mod solution_builder;
 pub use solution_builder::SolutionBuilder;
 
 mod types;
-pub use types::{ParallelError, DagError, ConfigId};
+pub use types::{ExecutorError, DagError, ConfigId};
+
+mod executor;

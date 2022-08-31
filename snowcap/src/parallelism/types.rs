@@ -2,16 +2,18 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
+use crate::netsim::config::Config;
+
 /// The absolute position of configurations in a vector
 pub type ConfigId = usize;
 
 /// 
 #[derive(Error, Debug)]
-pub enum ParallelError<T: Debug + 'static> {
-    ///
+pub enum ExecutorError {
+    /// Dag itself is problematic
     #[error("Dag Error: {0:?}")]
-    DagError(#[from] DagError<T>),
-    ///
+    DagError(#[from] DagError<ConfigId>),
+    /// Execution has failed due to an unknown error
     #[error("Encountered error during execution")]
     ExecutionFailed,
 }

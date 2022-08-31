@@ -69,7 +69,7 @@ impl SolutionBuilder {
             let current_node = starter_nodes.remove(0);
             let mut next_nodes = HashSet::new();
             if let Some(config1) = self.cache.get(&current_node) {
-                for next_node in self.node_dependency.get_next_of_node(current_node) {
+                for next_node in self.node_dependency.get_next_of_node(current_node)? {
                     if let Some(config2) = self.cache.get(&next_node) {
                         self.config_dependency.add_dependency(*config1, *config2).unwrap();
                         next_nodes.insert(next_node);
