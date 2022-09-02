@@ -2,8 +2,6 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::netsim::config::Config;
-
 /// The absolute position of configurations in a vector
 pub type ConfigId = usize;
 

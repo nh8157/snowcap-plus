@@ -9,7 +9,6 @@ use crate::parallelism::types::*;
 pub struct Dag<T> {
     /// A Directed Acyclic Graph object holding all nodes
     dag: HashMap<T, Node<T>>,
-    // /// A hashset that points to all the ready tasks
 }
 
 impl<T: Eq + Hash + Debug + Copy> Dag<T> {
@@ -153,7 +152,7 @@ impl<T: Eq + Hash + Debug + Copy> Node<T> {
     }
 
     /// This function is invoked by the prev node when it is completed.
-    fn mark_prev_complete(&mut self, node: T) -> Option<bool> {
+    fn _mark_prev_complete(&mut self, node: T) -> Option<bool> {
         if self.prev.contains(&node) {
             self.prev_count += 1;
             return Some(self.get_status());

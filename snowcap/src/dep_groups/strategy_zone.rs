@@ -9,7 +9,7 @@ use crate::strategies::{Strategy, StrategyDAG};
 use crate::{Error, Stopper};
 use std::collections::{HashMap, HashSet};
 use std::iter::zip;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(crate) type ZoneId = RouterId;
 
@@ -138,9 +138,10 @@ impl Zone {
 
     // This function takes in an array of configurations, filter out the irrelevant configurations,
     // pass the relevant configs into strartegy_trta, map the configs output to their ids
-    fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
+    fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<Duration, Error> {
         let relevant_configs = self.map_idx_to_config(configs)?;
         // Convert the conditions into hard policy object?
+        let start_time = Instant::now();
         let mut strategy = StrategyTRTA::new(
             self.get_emulated_network().to_owned(),
             relevant_configs.clone(),
@@ -148,8 +149,9 @@ impl Zone {
             None,
         )?;
         self.ordering = Some(strategy.work(Stopper::new())?);
+        let end_time = start_time.elapsed();
         // self.emulated_network.undo_action();
-        Ok(())
+        Ok(end_time)
     }
 
     fn map_idx_to_config(
@@ -200,18 +202,23 @@ impl StrategyDAG for StrategyZone {
     fn work(&mut self, _abort: Stopper) -> Result<Dag<ConfigId>, Error> {
         let mut builder = SolutionBuilder::new();
 
+        let start_time = Instant::now();
         self.init_zones()?;
-
+        
         let router_to_zone = zone_into_map(&self.zones);
-
+        
         // First verify if the hard policy is global reachability
         // The current algorithm cannot handle other LTL modals
         if !self.hard_policy.is_global_reachability() {
             return Err(Error::NotImplemented);
         }
         let condition = self.hard_policy.prop_vars.clone();
+        
+        let premliminary_duration = start_time.elapsed();
 
+        let mut split_invariance_duration = Duration::new(0, 0);
         for c in &condition {
+            let split_invariance_start = Instant::now();
             match c {
                 // only support reachable/not reachable condtions
                 Condition::Reachable(r, p, _) => {
@@ -253,14 +260,24 @@ impl StrategyDAG for StrategyZone {
                     return Err(Error::NotImplemented);
                 }
             }
+            let split_invariance_end = split_invariance_start.elapsed();
+            if split_invariance_end > split_invariance_duration {
+                split_invariance_duration = split_invariance_end;
+            }
         }
 
-        self.solve_zone_orderings()?;
+        let solve_duration = self.solve_zone_orderings()?;
 
+        let dag_construct_start = Instant::now();
         self.assemble_zone_orderings(&mut builder)?;
+        let dag_construct_duration = dag_construct_start.elapsed();
 
-        println!("{:?}", builder.get_node_dependency());
-        
+        println!("Preliminary: {:?}", premliminary_duration);
+        println!("Split invariance: {:?}", split_invariance_duration);
+        println!("Solve: {:?}", solve_duration);
+        println!("Dag construct: {:?}", dag_construct_duration);
+        let total_exec_time = premliminary_duration + split_invariance_duration + solve_duration + dag_construct_duration;
+        println!("Total time: {:?}", total_exec_time);
         Ok(builder.get_config_dependency().to_owned())
     }
 }
@@ -277,11 +294,16 @@ impl StrategyZone {
         Ok(())
     }
 
-    fn solve_zone_orderings(&mut self) -> Result<(), Error> {
+    fn solve_zone_orderings(&mut self) -> Result<Duration, Error> {
+        let mut max_time = Duration::new(0, 0);
         for z in self.zones.values_mut() {
-            z.solve_ordering(&self.modifiers)?;
+            let time = z.solve_ordering(&self.modifiers)?;
+            println!("Time for zone: {:?}", time);
+            if time > max_time {
+                max_time = time;
+            }
         }
-        Ok(())
+        Ok(max_time)
     }
 
     fn assemble_zone_orderings(&self, builder: &mut SolutionBuilder) -> Result<(), Error> {
@@ -494,9 +516,10 @@ mod test {
     // use crate::netsim::Network;
     use crate::netsim::types::Destination::*;
     use crate::netsim::Prefix;
-    use crate::strategies::StrategyDAG;
+    use crate::strategies::{StrategyDAG, StrategyTRTA, Strategy};
     use crate::Stopper;
     use std::collections::HashSet;
+    use std::time::Instant;
 
     #[test]
     fn test_chain_gadget_partition() {
@@ -570,14 +593,31 @@ mod test {
         assert_eq!(fw_zone_2.get_route_new(r2, BGP(Prefix(0))), Ok(vec![r2, e2]));
     }
 
+    // It's interesting that StrategyTRTA tend to have huge runtime fluctuations over the same network
+    // while StrategyZone's runtime is pretty stable
+
+    // according to the runtime, generating the DAG consumes the most time
+
     #[test]
     fn test_sigcomm_net_synthesize() {
         let net = Sigcomm::net(0);
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
-        let dag =
+        let _dag =
             StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
-        println!("{:?}", dag);
+        // println!("{:?}", dag);
+    }
+
+    #[test]
+    fn test_sigcomm_net_trta() {
+        let net = Sigcomm::net(0);
+        let end_config = Sigcomm::final_config(&net, 0);
+        let hard_policy = Sigcomm::get_policy(&net, 0);
+        let start_time = Instant::now();
+        let _order = StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        let end_time = start_time.elapsed();
+
+        println!("{:?}", end_time);
     }
 
     #[test]
@@ -603,6 +643,7 @@ mod test {
         assert_eq!(set2, Ok(res2));
     }
 
+    // For this part, the two algorithms has little difference in speed
     #[test]
     fn test_chain_gadget_synthesize() {
         let net = ChainGadgetLegacy::<Repetition10>::net(0);
@@ -612,5 +653,18 @@ mod test {
             StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
 
         println!("{:?}", dag);
+    }
+
+    #[test]
+    fn test_chain_gadget_trta() {
+        let net = ChainGadgetLegacy::<Repetition10>::net(0);
+        let end_config = ChainGadgetLegacy::<Repetition10>::final_config(&net, 0);
+        let hard_policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
+
+        let start_time = Instant::now();
+        let _order = StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        let end_time = start_time.elapsed();
+
+        println!("{:?}", end_time);
     }
 }
