@@ -11,7 +11,7 @@ use petgraph::stable_graph;
 pub fn find_ospf_strict_zone (network:&Network)-> Vec<Vec<RouterId>>{
     fn judge(router1:RouterId,router2:RouterId, graph:&IgpNetwork)->bool{
         //println!("Judge: Router1 is {}. Router2 is {}.",router1.index(),router2.index());
-        let mut temp_edge= graph.find_edge(router1,router2);
+        //let mut temp_edge= graph.find_edge(router1,router2);
         //if temp_edge==None{
             //println! ("It is None!");
         //}
@@ -25,12 +25,13 @@ pub fn find_ospf_strict_zone (network:&Network)-> Vec<Vec<RouterId>>{
         //let groups = connected_components(&graph);
         //println!("Has {} group",groups);
         let possible_paths=all_simple_paths(&graph, router1, router2,0,None);
-        let possible_paths_vec:Vec<HashSet<RouterId>>=possible_paths.collect();
+        let possible_paths_vec:Vec<HashSet<RouterId>>=possible_paths.collect(); //generate all possible paths
         if possible_paths_vec.len()<2{
             return false;
         }
         let mut temp_intersect=possible_paths_vec[0].clone();
         let mut path_cnt=0;
+        // find the intersection of all possible paths,if there is still
         for path in possible_paths_vec{
             path_cnt=path_cnt+1;
             //for temp_router in &path{
@@ -40,7 +41,9 @@ pub fn find_ospf_strict_zone (network:&Network)-> Vec<Vec<RouterId>>{
             //for temp_router in &temp_intersect{
                 //println!("{} before intersect with path {}",temp_router.index(),path_cnt);
             //}
-            let this_intersection=temp_intersect.intersection(&path);
+
+            
+            let this_intersection=temp_intersect.intersection(&path); 
             let mut next_intersect=HashSet::new();
             for temp_router in this_intersection{
                 next_intersect.insert(*temp_router);
