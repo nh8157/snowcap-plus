@@ -31,6 +31,8 @@ mod test_router;
 mod test_solve_network;
 #[cfg(test)]
 mod test_ospf_zone;
+#[cfg(test)]
+mod test_ospf_ordering;
 // NOTE These tests are deactivated, since this feature is temporarily disabled.
 //#[cfg(test)]
 //mod test_transient_behavior;
