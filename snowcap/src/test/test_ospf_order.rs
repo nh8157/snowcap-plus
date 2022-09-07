@@ -29,8 +29,8 @@ fn test_ospf_ordering(){
     this_network.add_link(f_id,g_id);
     this_network.add_link(e_id,g_id);
     let mut c = Config::new();
-    c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: b_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: a_id, weight: 10.0 }).unwrap();
+    c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: b_id, weight: 8.0 }).unwrap();
+    c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: a_id, weight: 8.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: c_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: c_id, target: a_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: d_id, weight: 10.0 }).unwrap();
@@ -39,12 +39,20 @@ fn test_ospf_ordering(){
     c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: c_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: e_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: e_id, target: d_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: f_id, weight: 10.0 }).unwrap();
-    c.add(ConfigExpr::IgpLinkWeight { source: f_id, target: d_id, weight: 10.0 }).unwrap();
+    c.add(ConfigExpr::IgpLinkWeight { source: d_id, target: f_id, weight: 8.0 }).unwrap();
+    c.add(ConfigExpr::IgpLinkWeight { source: f_id, target: d_id, weight: 8.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: f_id, target: g_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: g_id, target: f_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: e_id, target: g_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: g_id, target: e_id, weight: 10.0 }).unwrap();
+    let mut b_accept:Vec<RouterId> = Vec::new();
+    b_accept.push(a_id);
+    let mut b_deny:Vec<RouterId> = Vec::new();
+    let mut f_accept:Vec<RouterId> = Vec::new();
+    f_accept.push(a_id);
+    let mut f_deny:Vec<RouterId> = Vec::new();
+    c.add(ConfigExpr::AccessControl { router: b_id, accept: b_accept, deny: b_deny });
+    c.add(ConfigExpr::AccessControl { router: f_id, accept: f_accept, deny: f_deny });
     this_network.set_config(&c).unwrap();
     let mut zones=find_ospf_strict_zone(&this_network);
     let mut zone_cnt=1;
@@ -64,4 +72,31 @@ fn test_ospf_ordering(){
     let mut config_2=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:5.0})};
     let mut config_3=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:5.0})};
     let mut config_4=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:5.0})};
+    configs.push(config_1);
+    configs.push(config_2);
+    configs.push(config_3);
+    configs.push(config_4);
+    let mut ordering_1 = zone1.solve_ordering(&configs).ok();
+    let mut ordering_2 = zone2.solve_ordering(&configs).ok();
+    let mut final_order_set = Vec::new();
+    final_order_set.push(ordering_1);
+    final_order_set.push(ordering_2);
+    /*
+    let mut final_order = merge_zone_order(final_order_set);
+    for i in final_order.iter(){
+        let temp_config={
+            match i{
+                ConfigModifier::Insert(e) => e,
+                ConfigModifier::Remove(e) => e,
+                ConfigModifier::Update{from,to} => to,
+            }
+        };
+        match temp_config{
+            ConfigExpr::IgpLinkWeight {source, target, weight} => {
+                println! ("source: {}, target: {}, weight: {}", source.index(),target.index(),weight);
+            }
+            _ => {println! ("No!");}
+        }
+    }
+    */
 }
