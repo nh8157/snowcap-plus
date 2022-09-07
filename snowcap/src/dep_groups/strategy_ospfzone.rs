@@ -12,11 +12,10 @@ use std::time::Duration;
 use crate::netsim::ospfzone::find_ospf_strict_zone;
 use crate::netsim::bgp::BgpEvent::Update;
 
-pub(crate) type ZoneId = RouterId;
 
 #[derive(Debug, Clone)]
 pub struct Zone {
-    pub id: ZoneId,                 // Identifier of the current zone
+    pub id: u32,                 // Identifier of the current zone
     pub routers: HashSet<RouterId>, // Routers that belong to this zone
     ordering: Option<Vec<ConfigModifier>>,
     hard_policy: HashSet<Condition>,
@@ -25,7 +24,7 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn new(id: RouterId, net: &Network) -> Self {
+    pub fn new(id: u32, net: &Network) -> Self {
         Self {
             id: id,
             routers: HashSet::new(),
@@ -48,13 +47,13 @@ impl Zone {
         self.routers.insert(router);
     }
 
-    fn add_hard_policy(&mut self, condition: Condition) {
+    pub fn add_hard_policy(&mut self, condition: Condition) {
         if !self.hard_policy.contains(&condition) {
             self.hard_policy.insert(condition);
         }
     }
 
-    fn _get_id(&self) -> RouterId {
+    fn _get_id(&self) -> u32 {
         return self.id;
     }
 
@@ -80,7 +79,7 @@ impl Zone {
 
     // This function takes in an array of configurations, filter out the irrelevant configurations,
     // pass the relevant configs into strartegy_trta, map the configs output to their ids
-    fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
+    pub fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
         let relevant_configs = self.map_idx_to_config(configs)?;
         // Convert the conditions into hard policy object?
         let mut strategy = StrategyTRTA::new(
@@ -104,12 +103,12 @@ impl Zone {
                 match config{
                     ConfigModifier::Insert(e) => e,
                     ConfigModifier::Remove(e) => e,
-                    ConfigModifier::Update(to,..) => to,
+                    ConfigModifier::Update{from,to} => to,
                 }
             };
             match temp_config{
-                ConfigExpr::IgpLinkWeight => {
-                    if self.get_routers().iter().any(|&temp_router| temp_router==temp_config.source) && self.get_routers().iter().any(|&temp_router| temp_router==temp_config.target){
+                ConfigExpr::IgpLinkWeight {source, target, weight} => {
+                    if self.get_routers().iter().any(|temp_router| *temp_router==*source) && self.get_routers().iter().any(|temp_router| *temp_router==*target){
                         relevant_configs.push(config.to_owned());
                     }
                 }
@@ -122,15 +121,15 @@ impl Zone {
 pub fn merge_zone_order(order_results:Vec<Option<Vec<ConfigModifier>>>) -> Vec<ConfigModifier>{
     let mut final_ordering:Vec<ConfigModifier>=Vec::new();
     for packed_suborder in order_results.iter() {
-        let mut unpacked_suborder:Vec<ConfigModifier> = packed_suborder.unwrap();
+        let mut unpacked_suborder:Vec<ConfigModifier> = packed_suborder.clone().unwrap();
         let mut temp_index:i32=-1;
         for temp_router in unpacked_suborder.iter(){
-            if final_ordering.iter().any(|&ordered_router| ordered_router==*temp_router){
-                temp_index=final_ordering.iter().position(|&index_router| index_router==*temp_router).unwrap();
+            if final_ordering.iter().any(|ordered_router| *ordered_router==*temp_router){
+                temp_index=final_ordering.iter().position(|index_router| *index_router==*temp_router).unwrap().to_string().parse::<i32>().unwrap();
             }
             else{
                 temp_index=temp_index+1;
-                final_ordering.insert(temp_index,temp_router.to_owned());
+                final_ordering.insert(temp_index as usize,temp_router.to_owned());
             }
         }
     }

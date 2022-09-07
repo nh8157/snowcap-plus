@@ -1,6 +1,7 @@
 use crate::netsim::config::{Config,ConfigExpr,ConfigModifier,ConfigPatch};
 use crate::netsim::router::Router;
 use crate::netsim::network::Network;
+use crate::hard_policies::{Condition, HardPolicy};
 use petgraph::algo::all_simple_paths;
 use std::collections::{HashMap,HashSet};
 use crate::netsim::ospfzone::find_ospf_strict_zone;
@@ -27,6 +28,7 @@ fn test_ospf_ordering(){
     this_network.add_link(d_id,f_id);
     this_network.add_link(f_id,g_id);
     this_network.add_link(e_id,g_id);
+    let mut c = Config::new();
     c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: b_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: a_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: c_id, weight: 10.0 }).unwrap();
@@ -52,5 +54,14 @@ fn test_ospf_ordering(){
         }
         zone_cnt=zone_cnt+1;
     }
-
+    let mut policy = Condition::ReachableIGP(a_id, g_id, None);
+    let mut zone1=Zone::new(1,&this_network);
+    let mut zone2=Zone::new(2,&this_network);
+    zone1.add_hard_policy(policy.clone());
+    zone2.add_hard_policy(policy.clone());
+    let mut configs:Vec<ConfigModifier> = Vec::new();
+    let mut config_1=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:a_id, target:c_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:a_id, target:c_id, weight:5.0})};
+    let mut config_2=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:5.0})};
+    let mut config_3=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:5.0})};
+    let mut config_4=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:5.0})};
 }
