@@ -43,7 +43,7 @@ impl Zone {
         routers.iter().for_each(|r| self.add_router(*r));
     }
 
-    fn add_router(&mut self, router: RouterId) {
+    pub fn add_router(&mut self, router: RouterId) {
         self.routers.insert(router);
     }
 
@@ -81,6 +81,22 @@ impl Zone {
     // pass the relevant configs into strartegy_trta, map the configs output to their ids
     pub fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
         let relevant_configs = self.map_idx_to_config(configs)?;
+        println!("{} configs related!",relevant_configs.len());
+        for i in relevant_configs.iter(){
+            let temp_config={
+                match i{
+                    ConfigModifier::Insert(e) => e,
+                    ConfigModifier::Remove(e) => e,
+                    ConfigModifier::Update{from,to} => to,
+                }
+            };
+            match temp_config{
+                ConfigExpr::IgpLinkWeight {source, target, weight} => {
+                    println! ("source: {}, target: {}, weight: {}", source.index(),target.index(),weight);
+                }
+                _ => {println! ("No!");}
+            }
+        }
         // Convert the conditions into hard policy object?
         let mut strategy = StrategyTRTA::new(
             self.get_emulated_network().to_owned(),
@@ -108,7 +124,12 @@ impl Zone {
             };
             match temp_config{
                 ConfigExpr::IgpLinkWeight {source, target, weight} => {
-                    if self.get_routers().iter().any(|temp_router| *temp_router==*source) && self.get_routers().iter().any(|temp_router| *temp_router==*target){
+                    //println!("the edge is from {} to {}", source.index(),target.index());
+                    //for i in self.get_routers().iter(){
+                        //println!("router {} here",i.index());
+                    //}
+                    if self.get_routers().iter().any(|temp_router| temp_router.index()==source.index()) && self.get_routers().iter().any(|temp_router| temp_router.index()==target.index()){
+                        //println!("PUSHED!");
                         relevant_configs.push(config.to_owned());
                     }
                 }
