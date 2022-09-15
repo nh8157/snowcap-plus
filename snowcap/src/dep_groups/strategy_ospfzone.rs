@@ -1,7 +1,6 @@
 use crate::dep_groups::strategy_trta::StrategyTRTA;
 use crate::dep_groups::utils::*;
 use crate::hard_policies::{Condition, HardPolicy};
-use crate::netsim::config::{ConfigExpr, ConfigModifier};
 use crate::netsim::types::Destination::*;
 use crate::netsim::{BgpSessionType, ForwardingState, Network, NetworkError, Prefix, RouterId};
 use crate::strategies::Strategy;
@@ -11,6 +10,7 @@ use std::iter::zip;
 use std::time::Duration;
 use crate::netsim::ospfzone::find_ospf_strict_zone;
 use crate::netsim::bgp::BgpEvent::Update;
+use crate::netsim::config::{Config,ConfigExpr,ConfigModifier,ConfigPatch};
 
 
 #[derive(Debug, Clone)]
@@ -79,8 +79,24 @@ impl Zone {
 
     // This function takes in an array of configurations, filter out the irrelevant configurations,
     // pass the relevant configs into strartegy_trta, map the configs output to their ids
+    pub fn solve_ordering2(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
+        let relevant_configs = self.map_idx_to_config(configs)?;
+        let mut c = Config::new();
+        //let current_configs = self.get_emulated_network().to_owned().current_config();
+        for i in relevant_configs.to_owned().iter(){
+            let mut temp_i = i.clone();
+            match temp_i{
+                ConfigModifier::Insert(e) => {c.add(e);}
+                ConfigModifier::Remove(e) => {c.add(e);}
+                ConfigModifier::Update{from,to} => {c.add(to);}
+            };
+        }
+        let mut temp_order = StrategyTRTA::synthesize(self.get_emulated_network().to_owned(), c, HardPolicy::globally(self.get_policy()), None, Stopper::new());
+        Ok(())
+    }
     pub fn solve_ordering(&mut self, configs: &Vec<ConfigModifier>) -> Result<(), Error> {
         let relevant_configs = self.map_idx_to_config(configs)?;
+        /*
         println!("{} configs related!",relevant_configs.len());
         for i in relevant_configs.iter(){
             let temp_config={
@@ -94,9 +110,11 @@ impl Zone {
                 ConfigExpr::IgpLinkWeight {source, target, weight} => {
                     println! ("source: {}, target: {}, weight: {}", source.index(),target.index(),weight);
                 }
+                
                 _ => {println! ("No!");}
             }
         }
+        */
         // Convert the conditions into hard policy object?
         let mut strategy = StrategyTRTA::new(
             self.get_emulated_network().to_owned(),
@@ -104,6 +122,7 @@ impl Zone {
             HardPolicy::globally(self.get_policy()),
             None,
         )?;
+        
         self.ordering = Some(strategy.work(Stopper::new())?);
         // self.emulated_network.undo_action();
         Ok(())

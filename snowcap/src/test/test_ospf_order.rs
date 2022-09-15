@@ -13,6 +13,7 @@ use crate::dep_groups::strategy_ospfzone::{Zone,merge_zone_order};
 #[test]
 fn test_ospf_ordering(){
     let mut this_network=Network::new();
+    //topology
     let a_id = this_network.add_router("A");
     let b_id = this_network.add_router("B");
     let c_id = this_network.add_router("C");
@@ -28,6 +29,7 @@ fn test_ospf_ordering(){
     this_network.add_link(d_id,f_id);
     this_network.add_link(f_id,g_id);
     this_network.add_link(e_id,g_id);
+    //original config
     let mut c = Config::new();
     c.add(ConfigExpr::IgpLinkWeight { source: a_id, target: b_id, weight: 8.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: b_id, target: a_id, weight: 8.0 }).unwrap();
@@ -45,25 +47,19 @@ fn test_ospf_ordering(){
     c.add(ConfigExpr::IgpLinkWeight { source: g_id, target: f_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: e_id, target: g_id, weight: 10.0 }).unwrap();
     c.add(ConfigExpr::IgpLinkWeight { source: g_id, target: e_id, weight: 10.0 }).unwrap();
-    let mut b_accept:Vec<RouterId> = Vec::new();
-    b_accept.push(a_id);
-    let mut b_deny:Vec<RouterId> = Vec::new();
-    let mut f_accept:Vec<RouterId> = Vec::new();
-    f_accept.push(a_id);
-    let mut f_deny:Vec<RouterId> = Vec::new();
-    let mut acl_b=ConfigExpr::AccessControl { router: b_id, accept: b_accept, deny: b_deny };
-    c.add(acl_b);
-    let mut acl_f=ConfigExpr::AccessControl { router: f_id, accept: f_accept, deny: f_deny };
-    c.add(acl_f);
+    c.add(ConfigExpr::AccessControl { router: b_id, accept: [a_id].to_vec(), deny:[].to_vec()});
+    c.add(ConfigExpr::AccessControl { router: f_id, accept: [a_id].to_vec(), deny:[].to_vec()});
     this_network.set_config(&c).unwrap();
     let mut zones:Vec<Vec<RouterId>>=find_ospf_strict_zone(&this_network);
     let mut zone_cnt=1;
+    // ignore the loop below, it is for printing the zones
     for zone in &zones{
         for router in zone{
             println!("Router {} in zone {}",router.index(),zone_cnt);
         }
         zone_cnt=zone_cnt+1;
     }
+    // Hard policies
     let mut policy = Condition::ReachableIGP(a_id, g_id, None);
     let mut zone1=Zone::new(1,&this_network);
     let mut zone2=Zone::new(2,&this_network);
@@ -81,29 +77,38 @@ fn test_ospf_ordering(){
     let mut config_2=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:c_id, target:a_id, weight:5.0})};
     let mut config_3=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:d_id, target:e_id, weight:5.0})};
     let mut config_4=ConfigModifier::Update{from:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:10.0}),to:(ConfigExpr::IgpLinkWeight{source:e_id, target:d_id, weight:5.0})};
-    let mut old_b_accept:Vec<RouterId> = Vec::new();
-    old_b_accept.push(a_id);
-    let mut old_b_deny:Vec<RouterId> = Vec::new();
-    let mut new_b_accept:Vec<RouterId> = Vec::new();
-    let mut new_b_deny:Vec<RouterId> = Vec::new();
-    new_b_deny.push(a_id);
-    let mut config_5=ConfigModifier::Update{from:(ConfigExpr::AccessControl { router: b_id, accept: old_b_accept, deny: old_b_deny }),to:(ConfigExpr::AccessControl { router: b_id, accept: new_b_accept, deny: new_b_deny })};
-    let mut old_f_deny:Vec<RouterId> = Vec::new();
-    let mut old_f_accept:Vec<RouterId> = Vec::new();
-    old_f_accept.push(a_id);
-    let mut new_f_accept:Vec<RouterId> = Vec::new();
-    let mut new_f_deny:Vec<RouterId> = Vec::new();
-    new_f_deny.push(a_id);
-    let mut config_6=ConfigModifier::Update{from:(ConfigExpr::AccessControl { router: f_id, accept: old_f_accept, deny: old_f_deny }),to:(ConfigExpr::AccessControl { router: f_id, accept: new_f_accept, deny: new_f_deny })};
-
+    let mut config_5=ConfigModifier::Update{from:(ConfigExpr::AccessControl { router: b_id, accept: [a_id].to_vec(), deny: [].to_vec() }),to:(ConfigExpr::AccessControl { router: b_id, accept: [].to_vec(), deny: [a_id].to_vec() })};
+    let mut config_6=ConfigModifier::Update{from:(ConfigExpr::AccessControl { router: f_id, accept: [a_id].to_vec(), deny: [].to_vec() }),to:(ConfigExpr::AccessControl { router: f_id, accept: [].to_vec(), deny: [a_id].to_vec() })};
+    /*
     configs.push(config_1);
     configs.push(config_2);
     configs.push(config_3);
     configs.push(config_4);
     configs.push(config_5);
     configs.push(config_6);
-    let mut ordering_1 = zone1.solve_ordering(&configs).ok();
-    let mut ordering_2 = zone2.solve_ordering(&configs).ok();
+    */
+    //end config
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: a_id, target: c_id, weight: 5.0}));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: c_id, target: a_id, weight: 5.0}));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: d_id, target: e_id, weight: 5.0}));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: e_id, target: d_id, weight: 5.0}));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: a_id, target: b_id, weight: 8.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: b_id, target: a_id, weight: 8.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: b_id, target: d_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: d_id, target: b_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: c_id, target: d_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: d_id, target: c_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: d_id, target: f_id, weight: 8.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: f_id, target: d_id, weight: 8.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: f_id, target: g_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: g_id, target: f_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: e_id, target: g_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::IgpLinkWeight { source: g_id, target: e_id, weight: 10.0 }));
+    configs.push(ConfigModifier::Insert(ConfigExpr::AccessControl{router: b_id, accept: [].to_vec(), deny: [a_id].to_vec()}));
+    configs.push(ConfigModifier::Insert(ConfigExpr::AccessControl{router: f_id, accept: [].to_vec(), deny: [a_id].to_vec()}));
+    //call synthesize method
+    let mut ordering_1 = zone1.solve_ordering2(&configs).ok();
+    let mut ordering_2 = zone2.solve_ordering2(&configs).ok();
     //let mut final_order_set = Vec::new();
     //println! ("order1 has length: {}",ordering_1.unwrap().length());
     //final_order_set.push(ordering_1);
