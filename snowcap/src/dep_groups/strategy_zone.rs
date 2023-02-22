@@ -149,6 +149,7 @@ impl Zone {
             None,
         )?;
         self.ordering = Some(strategy.work(Stopper::new())?);
+        // println!("{:?}", self.ordering);
         let end_time = start_time.elapsed();
         // self.emulated_network.undo_action();
         Ok(end_time)
@@ -204,16 +205,18 @@ impl StrategyDAG for StrategyZone {
 
         let start_time = Instant::now();
         self.init_zones()?;
-        
+
+        println!("Partitioned into {} zones", self.zones.len());
+
         let router_to_zone = zone_into_map(&self.zones);
-        
+
         // First verify if the hard policy is global reachability
         // The current algorithm cannot handle other LTL modals
         if !self.hard_policy.is_global_reachability() {
             return Err(Error::NotImplemented);
         }
         let condition = self.hard_policy.prop_vars.clone();
-        
+
         let premliminary_duration = start_time.elapsed();
 
         let mut split_invariance_duration = Duration::new(0, 0);
@@ -222,6 +225,7 @@ impl StrategyDAG for StrategyZone {
             match c {
                 // only support reachable/not reachable condtions
                 Condition::Reachable(r, p, _) => {
+                    println!("Splitting reachable condition");
                     let before_path = self.before_state.get_route_new(*r, BGP(*p)).unwrap();
                     let after_path = self.after_state.get_route_new(*r, BGP(*p)).unwrap();
                     // also need to retrieve the AS info of this router
@@ -229,8 +233,9 @@ impl StrategyDAG for StrategyZone {
                     // segment routers on new route and old route into different zones
                     let before_zones = segment_path(&router_to_zone, &before_path)?;
                     let after_zones = segment_path(&router_to_zone, &after_path)?;
+                    println!("Before zones: {:?}", before_zones);
+                    println!("After zones: {:?}", after_zones);
                     // create propositional variables and virtual boundaries using these zones
-                    // build path-wise dependencies
                     self.split_invariance_add_to_zones(p, &before_zones, &router_to_zone)?;
                     self.split_invariance_add_to_zones(p, &after_zones, &router_to_zone)?;
 
@@ -244,6 +249,7 @@ impl StrategyDAG for StrategyZone {
                             // Check if the router has a different next hop in the new state
                             if self.before_state.has_diff_next_hop(*s, *p, &self.after_state) {
                                 builder.add_node_dependency(*r, *s)?;
+                                println!("Adding dependency");
                             }
                         }
                     }
@@ -266,6 +272,8 @@ impl StrategyDAG for StrategyZone {
             }
         }
 
+        println!("Node dependency: {:?}", builder.get_node_dependency());
+
         let solve_duration = self.solve_zone_orderings()?;
 
         let dag_construct_start = Instant::now();
@@ -276,7 +284,10 @@ impl StrategyDAG for StrategyZone {
         println!("Split invariance: {:?}", split_invariance_duration);
         println!("Solve: {:?}", solve_duration);
         println!("Dag construct: {:?}", dag_construct_duration);
-        let total_exec_time = premliminary_duration + split_invariance_duration + solve_duration + dag_construct_duration;
+        let total_exec_time = premliminary_duration
+            + split_invariance_duration
+            + solve_duration
+            + dag_construct_duration;
         println!("Total time: {:?}", total_exec_time);
         Ok(builder.get_config_dependency().to_owned())
     }
@@ -298,11 +309,11 @@ impl StrategyZone {
         let mut max_time = Duration::new(0, 0);
         for z in self.zones.values_mut() {
             let time = z.solve_ordering(&self.modifiers)?;
-            println!("Time for zone: {:?}", time);
             if time > max_time {
                 max_time = time;
             }
         }
+        println!("Max time for solving zone is: {:?}", max_time);
         Ok(max_time)
     }
 
@@ -312,11 +323,17 @@ impl StrategyZone {
         for z in self.zones.values() {
             match z.get_ordering() {
                 Some(config_ordering) => {
-                    println!("{:?}", config_ordering);
                     let idx_ordering: Vec<_> = config_ordering
                         .iter()
                         .map(|x| *config_to_idx_map.get(&x.key()).unwrap())
                         .collect();
+                    let mut idx_set = HashSet::new();
+                    for i in idx_ordering.iter() {
+                        if !idx_set.insert(*i) {
+                            println!("Duplicate");
+                        }
+                    }
+                    // create timestamps that correspond to configuration
                     let time_stamps = self.net.clone().apply_modifiers_check_next_hop(
                         &z.get_routers().into_iter().collect(),
                         &config_ordering,
@@ -457,6 +474,7 @@ impl StrategyZone {
                     // calculate the intersection of the zones the beginning and the ending routers belong to
                     let intersect = set1.intersection(&set2);
                     // only add policy, virtual boundary router to the zones that are common
+                    // println!("Zone intersection: {:?}", intersect);
                     for z in intersect {
                         if let Some(zone_ptr) = self.zones.get_mut(*z) {
                             zone_ptr.add_hard_policy(Condition::Reachable(*router, *p, None));
@@ -511,12 +529,11 @@ mod test {
     use crate::dep_groups::strategy_zone::StrategyZone;
     use crate::dep_groups::utils::bgp_zone_extractor;
     use crate::example_networks::repetitions::Repetition10;
-    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm};
-    // use crate::hard_policies::HardPolicy;
-    // use crate::netsim::Network;
+    use crate::example_networks::{ChainGadgetLegacy, ExampleNetwork, Sigcomm, BipartiteGadget};
     use crate::netsim::types::Destination::*;
     use crate::netsim::Prefix;
-    use crate::strategies::{StrategyDAG, StrategyTRTA, Strategy};
+    use crate::strategies::{Strategy, StrategyDAG, StrategyTRTA};
+    use crate::topology_zoo::{Scenario, ZooTopology};
     use crate::Stopper;
     use std::collections::HashSet;
     use std::time::Instant;
@@ -603,9 +620,18 @@ mod test {
         let net = Sigcomm::net(0);
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
-        let _dag =
+        let dag =
             StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
-        // println!("{:?}", dag);
+        println!("{:?}", dag);
+    }
+
+    #[test]
+    fn test_abilene_net() {
+        let net = BipartiteGadget::<Repetition10>::net(2);
+        let end_config = BipartiteGadget::<Repetition10>::final_config(&net, 2);
+        let hard_policy = BipartiteGadget::<Repetition10>::get_policy(&net, 2);
+        let order = StrategyZone::synthesize(net, end_config, hard_policy, None, Stopper::new());
+        println!("{:?}", order);
     }
 
     #[test]
@@ -614,7 +640,8 @@ mod test {
         let end_config = Sigcomm::final_config(&net, 0);
         let hard_policy = Sigcomm::get_policy(&net, 0);
         let start_time = Instant::now();
-        let _order = StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        let _order =
+            StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
         let end_time = start_time.elapsed();
 
         println!("{:?}", end_time);
@@ -662,9 +689,60 @@ mod test {
         let hard_policy = ChainGadgetLegacy::<Repetition10>::get_policy(&net, 0);
 
         let start_time = Instant::now();
-        let _order = StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
+        let _order =
+            StrategyTRTA::synthesize(net, end_config, hard_policy, None, Stopper::new()).unwrap();
         let end_time = start_time.elapsed();
 
         println!("{:?}", end_time);
     }
+
+    #[test]
+    // failed
+    fn test_topo_zoo_uunet() {
+        let file =
+            String::from("/home/sheldonchen/Capstone/snowcap-plus/topology_zoo_gml/Uunet.gml");
+        let (net, config, policy) = ZooTopology::new(&file, 42)
+            .unwrap()
+            .apply_scenario(Scenario::IntroduceSecondRouteReflector, false, 100, 1, 1.0)
+            .unwrap();
+        let order = StrategyZone::synthesize(net, config, policy, None, Stopper::new()).unwrap();
+        println!("{:?}", order);
+    }
+
+    #[test]
+    fn test_topo_zoo_york() {
+        let file =
+            String::from("/home/sheldonchen/Capstone/snowcap-plus/topology_zoo_gml/York.gml");
+        let (net, config, policy) = ZooTopology::new(&file, 42)
+            .unwrap()
+            .apply_scenario(Scenario::IntroduceSecondRouteReflector, false, 100, 1, 1.0)
+            .unwrap();
+        let order = StrategyZone::synthesize(net, config, policy, None, Stopper::new()).unwrap();
+        println!("{:?}", order);
+    }
+
+    #[test]
+    fn test_topo_zoo_vtl() {
+        let file =
+            String::from("/home/sheldonchen/Capstone/snowcap-plus/topology_zoo_gml/VtlWavenet2011.gml");
+        let (net, config, policy) = ZooTopology::new(&file, 42)
+            .unwrap()
+            .apply_scenario(Scenario::IntroduceSecondRouteReflector, false, 100, 1, 1.0)
+            .unwrap();
+        let order = StrategyZone::synthesize(net, config, policy, None, Stopper::new()).unwrap();
+        println!("{:?}", order);
+    }
+    /*
+        Topology zoo with many nodes
+        Agis
+        Amres
+        York
+        Xspedius
+        VtlWavenet2011
+        Uunet
+        UsSignal
+        UsCarrier
+        Ntt
+        Kdl (Kentucky data link)
+    */
 }

@@ -91,6 +91,7 @@ impl<T: Eq + Hash + Debug + Copy> Dag<T> {
                 ready.push(*nid);
             }
         }
+        // println!("ready: {:?}", ready);
         if ready.len() == 0 {
             return None;
         }
